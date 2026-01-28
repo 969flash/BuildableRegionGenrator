@@ -1,10 +1,15 @@
 # -*- coding: utf-8 -*-
-"""North/South sky-exposure base curve computation.
+"""North/South sky-exposure base curve computation (정북/정남 사선).
 
-이 모듈은 사용자가 제공한 로직을 기반으로 정북(정남) 사선의 베이스 커브를 계산한다.
-현재 `fx.utils`는 스텁 상태이므로, 실제 실행을 위해서는 utils 구현이 필요하다.
+기존 루트의 `northsky.py` 로직을 `src/`로 옮긴 버전.
+- `fx.utils`(stub) 대신 `src/utils.py`의 실제 함수들을 사용한다.
+- Grasshopper(GhPython) / Rhino 환경에서 사용되는 것을 전제로 한다.
 
-Grasshopper에서 import해서 호출하는 것을 전제로 한다.
+Public API:
+- BaseCrv
+- NorthSkyBaseCurveCalculator
+- compute_northsky_base_crvs
+- compute_northsky_base_segments
 """
 
 try:
@@ -12,13 +17,21 @@ try:
 except ImportError:  # IronPython compatibility
     pass
 
-import math
 import itertools
+import math
 
 import Rhino.Geometry as geo  # type: ignore
 
-from fx import utils
-from fx.constants import TOL, ANGLE_90_DEGREE
+try:
+    # package import (root에서 `import src.northsky`)
+    from . import utils  # type: ignore
+except Exception:
+    # GH에서 폴더 import (src 폴더가 sys.path에 올라간 경우)
+    import utils  # type: ignore
+
+
+ANGLE_90_DEGREE = math.pi / 2.0
+TOL = getattr(utils, "TOL", 0.001)
 
 
 def get_target_segs(boundary, vec, tol=math.radians(1)):
@@ -35,20 +48,12 @@ def get_target_segs(boundary, vec, tol=math.radians(1)):
 
 def get_exposure_base_segs(seg, y_vec, neighbor_crvs, max_height):
     # type: (geo.Curve, geo.Vector3d, List[geo.Curve], float) -> List[geo.Curve]
-    """이웃 토지들에서 seg에 영향을 주는 사선을 구해준다.
+    """이웃 토지들에서 seg에 영향을 주는 사선 segment들을 구해준다."""
 
-    Args:
-        seg: 사선 고려할 segment
-        y_vec: 사선이 들어오는 방향
-        neighbor_crvs: 사선에 생성에 영향을 주는 토지들(자기 토지도 포함 가능)
-        max_height: 최대 사선이 생길 수 있는 거리(그 밖 토지는 무시)
-
-    Returns:
-        사선 방향의 가장 가까운 토지의 segment들
-    """
     x_vec = geo.Vector3d(y_vec)
     x_vec.Rotate(ANGLE_90_DEGREE, geo.Vector3d.ZAxis)
     plane = geo.Plane(seg.PointAtStart, x_vec, -y_vec)
+
     base_interval = utils.get_square_domain_from_seg(seg, plane).x_interval
     if base_interval.IsIncreasing:
         base_intervals = [base_interval]
@@ -157,40 +162,19 @@ def compute_northsky_base_crvs(
     excluded_lot_crvs=None,
 ):
     # type: (geo.Curve, geo.Vector3d, float, List[geo.Curve], bool, Optional[List[geo.Curve]]) -> List[BaseCrv]
-    """정북(정남) 사선의 BaseCrv들을 계산한다.
-
-    이 함수는 `NorthSkyManager._get_base_crvs()` 로직을 독립적으로 옮긴 것이다.
-
-    Args:
-        lot_region: 자기 토지 경계(닫힌 커브)
-        vec_exposure: 사선 방향 벡터(정북/정남)
-        max_distance: 사선이 영향을 줄 수 있는 최대 거리
-        neighbor_lot_crvs_without_gong: 주변 토지 경계 커브들(공공부지 등 제외된 리스트)
-        is_center_start: north_sky.is_center_start 대응
-        excluded_lot_crvs: (옵션) 20m 이상 도로에 동시에 접한 토지 등의 제외 대상 토지 경계 커브들
-
-    Returns:
-        BaseCrv 리스트. 현재 height는 0으로 채운다.
-
-    Notes:
-        - 성능 최적화/캐싱 목적의 코드는 포함하지 않는다.
-        - 정확히 동일한 결과가 필요하면 excluded_lot_crvs를 넘겨야 한다.
-    """
+    """정북(정남) 사선의 BaseCrv들을 계산한다."""
 
     def _filter_excluded_segs(seg_base, segs):
         # type: (geo.Curve, List[geo.Curve]) -> List[geo.Curve]
         filtered = []
         for seg in segs:
-            # 20m 이상 도로에 동시에 접한 토지에 생기는 정북사선 제거
             if excluded_lot_crvs and any(
                 utils.is_seg_on_crv(seg, lot_crv) for lot_crv in excluded_lot_crvs
             ):
                 continue
-            # 사선 방향 segment는 제거하지 않는다
             if utils.is_seg_on_crv(seg, seg_base):
                 filtered.append(seg)
                 continue
-            # 사선 방향이 아닌 자기 토지에 생기는 정북 사선 제거
             if utils.is_seg_on_crv(seg, lot_region):
                 continue
             filtered.append(seg)
