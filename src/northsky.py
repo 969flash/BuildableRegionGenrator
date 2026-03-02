@@ -1,18 +1,5 @@
 # -*- coding: utf-8 -*-
-"""North/South sky-exposure base curve computation (정북/정남 사선).
-
-기존 루트의 `northsky.py` 로직을 `src/`로 옮긴 버전.
-- `fx.utils`(stub) 대신 `src/utils.py`의 실제 함수들을 사용한다.
-- Grasshopper(GhPython) / Rhino 환경에서 사용되는 것을 전제로 한다.
-
-Public API:
-- BaseCrv
-- NorthSkyBaseCurveCalculator
-- NorthSkyBuildableBoundaryCalculator
-- compute_northsky_base_crvs
-- compute_northsky_base_segments
-- compute_northsky_buildable_boundary
-"""
+"""North/South sky-exposure computation (정북/정남 사선)."""
 
 try:
     from typing import List, Optional
@@ -25,10 +12,8 @@ import math
 import Rhino.Geometry as geo  # type: ignore
 
 try:
-    # package import (root에서 `import src.northsky`)
     from . import utils  # type: ignore
 except Exception:
-    # GH에서 폴더 import (src 폴더가 sys.path에 올라간 경우)
     import utils  # type: ignore
 
 import importlib
@@ -40,142 +25,158 @@ ANGLE_90_DEGREE = math.pi / 2.0
 TOL = getattr(utils, "TOL", 0.001)
 
 
-def get_target_segs(boundary, vec, tol=math.radians(1)):
-    # type: (geo.Curve, geo.Vector3d, float) -> List[geo.Curve]
-    """영역 내에서 해당 vec 방향의 segment들을 추출한다."""
-    targets = []
-    for seg in utils.explode(boundary):
-        vec_in = utils.get_inside_perp_vec(seg, boundary)
-        if vec * vec_in < math.sin(tol):
-            continue
-        targets.append(seg)
-    return targets
+class NorthSkyCalculator(object):
+    """정북사선을 고려한 기준선/건축가능영역 계산기.
 
+    외부에서 호출하는 메서드는 `compute()` 하나만 사용한다.
+    계산 결과는 멤버 변수에 저장된다.
+    - `base_segments`: List[geo.Curve]
+    - `buildable_boundary`: Optional[geo.Curve]
+    """
 
-def get_exposure_base_segs(seg, y_vec, neighbor_crvs, max_height):
-    # type: (geo.Curve, geo.Vector3d, List[geo.Curve], float) -> List[geo.Curve]
-    """이웃 토지들에서 seg에 영향을 주는 사선 segment들을 구해준다."""
+    def __init__(
+        self,
+        vec_exposure,
+        max_distance,
+        is_center_start,
+        height,
+        ratio,
+        base_offset=0.0,
+        base_height=0.0,
+        excluded_lot_crvs=None,
+    ):
+        # type: (geo.Vector3d, float, bool, float, float, float, float, Optional[List[geo.Curve]]) -> None
+        self.vec_exposure = geo.Vector3d(vec_exposure)
+        self.max_distance = float(max_distance)
+        self.is_center_start = bool(is_center_start)
 
-    x_vec = geo.Vector3d(y_vec)
-    x_vec.Rotate(ANGLE_90_DEGREE, geo.Vector3d.ZAxis)
-    plane = geo.Plane(seg.PointAtStart, x_vec, -y_vec)
+        self.height = float(height)
+        self.ratio = float(ratio)
+        self.base_offset = float(base_offset)
+        self.base_height = float(base_height)
+        self.excluded_lot_crvs = excluded_lot_crvs
 
-    base_interval = utils.get_square_domain_from_seg(seg, plane).x_interval
-    if base_interval.IsIncreasing:
-        base_intervals = [base_interval]
-    else:
-        base_interval.Swap()
-        base_intervals = [base_interval]
+        self.base_segments = []  # type: List[geo.Curve]
+        self.buildable_boundary = None  # type: Optional[geo.Curve]
 
-    region = utils.get_rect_from_seg(seg, -y_vec, max_height).crv
-    filtered = [
-        crv for crv in neighbor_crvs if utils.has_region_intersection(region, crv)
-    ]
-    if not filtered:
-        return []
-
-    intersections = utils.get_intersection_regions(
-        [region], utils.get_union_regions(filtered)
-    )
-    if not intersections:
-        return []
-
-    vertices = list(itertools.chain(*[utils.get_vertices(crv) for crv in filtered]))
-
-    dict_domain = {}
-    for intersection in intersections:
-        for target in get_target_segs(intersection, -y_vec):
-            pts_cutter = [v for v in vertices if utils.is_pt_on_crv(v, target, TOL)]
-            if pts_cutter:
-                target_segs = utils.split_crv_from_pts(target, pts_cutter, TOL, TOL)
-            else:
-                target_segs = [target]
-            for target_seg in target_segs:
-                square_domain = utils.get_square_domain_from_seg(target_seg, plane)
-                dict_domain[square_domain] = target_seg
-
-    segs_front = []
-    for square_domain in sorted(dict_domain.keys()):
-        diff_intervals = utils.subtract_interval(
-            base_intervals, square_domain.x_interval
+    def compute(self, lot_region, neighbor_lot_crvs_without_gong):
+        # type: (geo.Curve, List[geo.Curve]) -> None
+        self.base_segments = self._compute_base_segments(
+            lot_region=lot_region,
+            neighbor_lot_crvs_without_gong=neighbor_lot_crvs_without_gong,
         )
-        if (
-            sum(i.Length for i in base_intervals)
-            - sum(i.Length for i in diff_intervals)
-        ) < TOL:
-            continue
+        self.buildable_boundary = self._compute_buildable_boundary(
+            region=lot_region,
+            base_segments=self.base_segments,
+            height=self.height,
+        )
 
-        segs_front.append(dict_domain[square_domain])
-        if not diff_intervals or sum(i.Length for i in diff_intervals) < TOL:
-            break
+    def _get_target_segs(self, boundary, vec, tol=math.radians(1)):
+        # type: (geo.Curve, geo.Vector3d, float) -> List[geo.Curve]
+        targets = []
+        for seg in utils.explode(boundary):
+            vec_in = utils.get_inside_perp_vec(seg, boundary)
+            if vec * vec_in < math.sin(tol):
+                continue
+            targets.append(seg)
+        return targets
 
-        base_intervals = diff_intervals
+    def _get_exposure_base_segs(self, seg, y_vec, neighbor_crvs, max_height):
+        # type: (geo.Curve, geo.Vector3d, List[geo.Curve], float) -> List[geo.Curve]
+        x_vec = geo.Vector3d(y_vec)
+        x_vec.Rotate(ANGLE_90_DEGREE, geo.Vector3d.ZAxis)
+        plane = geo.Plane(seg.PointAtStart, x_vec, -y_vec)
 
-    return segs_front
-
-
-def get_centered_seg(crv, seg_exposure, vec):
-    # type: (geo.Curve, geo.Curve, geo.Vector3d) -> geo.Curve
-    """사선 시작 segment를 중심으로 옮겨준다."""
-    pts = []
-    for pt in (seg_exposure.PointAtStart, seg_exposure.PointAtEnd):
-        if utils.is_pt_on_crv(pt, crv):
-            pts.append(pt)
+        base_interval = utils.get_square_domain_from_seg(seg, plane).x_interval
+        if base_interval.IsIncreasing:
+            base_intervals = [base_interval]
         else:
-            pt_projected = utils.get_pt_from_pt_to_crvs(pt, vec, [crv])
-            if not pt_projected:
+            base_interval.Swap()
+            base_intervals = [base_interval]
+
+        region = utils.get_rect_from_seg(seg, -y_vec, max_height).crv
+        filtered = [
+            crv for crv in neighbor_crvs if utils.has_region_intersection(region, crv)
+        ]
+        if not filtered:
+            return []
+
+        intersections = utils.get_intersection_regions(
+            [region], utils.get_union_regions(filtered)
+        )
+        if not intersections:
+            return []
+
+        vertices = list(itertools.chain(*[utils.get_vertices(crv) for crv in filtered]))
+
+        dict_domain = {}
+        for intersection in intersections:
+            for target in self._get_target_segs(intersection, -y_vec):
+                pts_cutter = [v for v in vertices if utils.is_pt_on_crv(v, target, TOL)]
+                if pts_cutter:
+                    target_segs = utils.split_crv_from_pts(target, pts_cutter, TOL, TOL)
+                else:
+                    target_segs = [target]
+                for target_seg in target_segs:
+                    square_domain = utils.get_square_domain_from_seg(target_seg, plane)
+                    dict_domain[square_domain] = target_seg
+
+        segs_front = []
+        for square_domain in sorted(dict_domain.keys()):
+            diff_intervals = utils.subtract_interval(
+                base_intervals, square_domain.x_interval
+            )
+            if (
+                sum(i.Length for i in base_intervals)
+                - sum(i.Length for i in diff_intervals)
+            ) < TOL:
+                continue
+
+            segs_front.append(dict_domain[square_domain])
+            if not diff_intervals or sum(i.Length for i in diff_intervals) < TOL:
+                break
+
+            base_intervals = diff_intervals
+
+        return segs_front
+
+    def _get_centered_seg(self, crv, seg_exposure, vec):
+        # type: (geo.Curve, geo.Curve, geo.Vector3d) -> geo.Curve
+        pts = []
+        for pt in (seg_exposure.PointAtStart, seg_exposure.PointAtEnd):
+            if utils.is_pt_on_crv(pt, crv):
                 pts.append(pt)
             else:
-                pts.append((pt + pt_projected) / 2)
-    return geo.LineCurve(pts[0], pts[1])
+                pt_projected = utils.get_pt_from_pt_to_crvs(pt, vec, [crv])
+                if not pt_projected:
+                    pts.append(pt)
+                else:
+                    pts.append((pt + pt_projected) / 2)
+        return geo.LineCurve(pts[0], pts[1])
 
+    def _get_centered_segs(self, crv, segs_exposure, vec):
+        # type: (geo.Curve, List[geo.Curve], geo.Vector3d) -> List[geo.Curve]
+        return [self._get_centered_seg(crv, seg, vec) for seg in segs_exposure]
 
-def get_centered_segs(crv, segs_exposure, vec):
-    # type: (geo.Curve, List[geo.Curve], geo.Vector3d) -> List[geo.Curve]
-    """사선 시작 segment들을 중심으로 옮겨준다."""
-    return [get_centered_seg(crv, seg, vec) for seg in segs_exposure]
+    def _filter_short_segs(self, segs, vec_in):
+        # type: (List[geo.Curve], geo.Vector3d) -> List[geo.Curve]
+        vec_check = geo.Vector3d(vec_in)
+        vec_check.Rotate(ANGLE_90_DEGREE, geo.Vector3d.ZAxis)
 
+        filtered = []
+        for crv in utils.get_joined_crvs(segs):
+            if math.fabs(vec_check * (crv.PointAtStart - crv.PointAtEnd)) < 0.5:
+                continue
+            filtered += utils.explode(crv)
 
-def filter_short_segs(segs, vec_in):
-    # type: (List[geo.Curve], geo.Vector3d) -> List[geo.Curve]
-    vec_check = geo.Vector3d(vec_in)
-    vec_check.Rotate(ANGLE_90_DEGREE, geo.Vector3d.ZAxis)
+        return filtered
 
-    filtered = []
-    for crv in utils.get_joined_crvs(segs):
-        if math.fabs(vec_check * (crv.PointAtStart - crv.PointAtEnd)) < 0.5:
-            continue
-        filtered += utils.explode(crv)
-
-    return filtered
-
-
-class BaseCrv(object):
-    """사선 시작 선 + 시작 높이(현재는 0만 사용)."""
-
-    def __init__(self, crv, height):
-        # type: (geo.Curve, float) -> None
-        self.crv = crv
-        self.height = height
-
-
-def compute_northsky_base_crvs(
-    lot_region,
-    vec_exposure,
-    max_distance,
-    neighbor_lot_crvs_without_gong,
-    is_center_start,
-    excluded_lot_crvs=None,
-):
-    # type: (geo.Curve, geo.Vector3d, float, List[geo.Curve], bool, Optional[List[geo.Curve]]) -> List[BaseCrv]
-    """정북(정남) 사선의 BaseCrv들을 계산한다."""
-
-    def _filter_excluded_segs(seg_base, segs):
-        # type: (geo.Curve, List[geo.Curve]) -> List[geo.Curve]
+    def _filter_excluded_segs(self, lot_region, seg_base, segs):
+        # type: (geo.Curve, geo.Curve, List[geo.Curve]) -> List[geo.Curve]
         filtered = []
         for seg in segs:
-            if excluded_lot_crvs and any(
-                utils.is_seg_on_crv(seg, lot_crv) for lot_crv in excluded_lot_crvs
+            if self.excluded_lot_crvs and any(
+                utils.is_seg_on_crv(seg, lot_crv) for lot_crv in self.excluded_lot_crvs
             ):
                 continue
             if utils.is_seg_on_crv(seg, seg_base):
@@ -186,135 +187,55 @@ def compute_northsky_base_crvs(
             filtered.append(seg)
         return filtered
 
-    crvs_check = list(neighbor_lot_crvs_without_gong) + [lot_region]
-
-    result_bases = []  # type: List[geo.Curve]
-    # 정북/정남 vec_exposure(보호 방향) 기준으로,
-    # 기준 변(base)은 그 반대측 외곽면에서 시작되어야 한다.
-    # 예) 정북(vec_exposure=북) -> 북측 변 선택(내부법선은 남쪽)
-    for seg_base in get_target_segs(lot_region, -vec_exposure):
-        segs_exposure = get_exposure_base_segs(
-            seg_base, vec_exposure, crvs_check, max_distance
-        )
-        segs_filtered = _filter_excluded_segs(seg_base, segs_exposure)
-        if not segs_filtered:
-            continue
-
-        if not is_center_start:
-            result_bases += segs_filtered
-        else:
-            result_bases += get_centered_segs(seg_base, segs_filtered, vec_exposure)
-
-    result_bases = filter_short_segs(result_bases, vec_exposure)
-    return [BaseCrv(crv, 0) for crv in result_bases]
-
-
-def compute_northsky_base_segments(
-    lot_region,
-    vec_exposure,
-    max_distance,
-    neighbor_lot_crvs_without_gong,
-    is_center_start,
-    excluded_lot_crvs=None,
-):
-    # type: (geo.Curve, geo.Vector3d, float, List[geo.Curve], bool, Optional[List[geo.Curve]]) -> List[geo.Curve]
-    """`compute_northsky_base_crvs()`의 Curve 리스트 버전."""
-    return [
-        b.crv
-        for b in compute_northsky_base_crvs(
-            lot_region=lot_region,
-            vec_exposure=vec_exposure,
-            max_distance=max_distance,
-            neighbor_lot_crvs_without_gong=neighbor_lot_crvs_without_gong,
-            is_center_start=is_center_start,
-            excluded_lot_crvs=excluded_lot_crvs,
-        )
-    ]
-
-
-class NorthSkyBaseCurveCalculator(object):
-    """GH에서 쓰기 좋게 감싼 정북/정남 베이스 커브 계산기."""
-
-    def __init__(
-        self,
-        vec_exposure,
-        max_distance,
-        is_center_start,
-        excluded_lot_crvs=None,
-    ):
-        # type: (geo.Vector3d, float, bool, Optional[List[geo.Curve]]) -> None
-        self.vec_exposure = vec_exposure
-        self.max_distance = max_distance
-        self.is_center_start = is_center_start
-        self.excluded_lot_crvs = excluded_lot_crvs
-
-    def compute_base_crvs(self, lot_region, neighbor_lot_crvs_without_gong):
-        # type: (geo.Curve, List[geo.Curve]) -> List[BaseCrv]
-        return compute_northsky_base_crvs(
-            lot_region=lot_region,
-            vec_exposure=self.vec_exposure,
-            max_distance=self.max_distance,
-            neighbor_lot_crvs_without_gong=neighbor_lot_crvs_without_gong,
-            is_center_start=self.is_center_start,
-            excluded_lot_crvs=self.excluded_lot_crvs,
-        )
-
-    def compute_base_segments(self, lot_region, neighbor_lot_crvs_without_gong):
+    def _compute_base_segments(self, lot_region, neighbor_lot_crvs_without_gong):
         # type: (geo.Curve, List[geo.Curve]) -> List[geo.Curve]
-        return compute_northsky_base_segments(
-            lot_region=lot_region,
-            vec_exposure=self.vec_exposure,
-            max_distance=self.max_distance,
-            neighbor_lot_crvs_without_gong=neighbor_lot_crvs_without_gong,
-            is_center_start=self.is_center_start,
-            excluded_lot_crvs=self.excluded_lot_crvs,
-        )
+        crvs_check = list(neighbor_lot_crvs_without_gong) + [lot_region]
 
+        result_bases = []  # type: List[geo.Curve]
+        for seg_base in self._get_target_segs(lot_region, -self.vec_exposure):
+            segs_exposure = self._get_exposure_base_segs(
+                seg_base, self.vec_exposure, crvs_check, self.max_distance
+            )
+            segs_filtered = self._filter_excluded_segs(
+                lot_region=lot_region,
+                seg_base=seg_base,
+                segs=segs_exposure,
+            )
+            if not segs_filtered:
+                continue
 
-class NorthSkyBuildableBoundaryCalculator(object):
-    """정북/정남 사선 기준, 높이별 건축가능영역 경계를 계산한다."""
+            if not self.is_center_start:
+                result_bases += segs_filtered
+            else:
+                result_bases += self._get_centered_segs(
+                    seg_base, segs_filtered, self.vec_exposure
+                )
 
-    def __init__(
-        self,
-        base_crvs,
-        vec_exposure,
-        ratio,
-        base_offset=0.0,
-        base_height=0.0,
-    ):
-        # type: (List[BaseCrv], geo.Vector3d, float, float, float) -> None
-        self.base_crvs = [b for b in (base_crvs or []) if b and b.crv]
-        self.vec_exposure = geo.Vector3d(vec_exposure)
-        self.ratio = float(ratio)
-        self.base_offset = float(base_offset)
-        self.base_height = float(base_height)
+        return self._filter_short_segs(result_bases, self.vec_exposure)
 
-    def get_buildable_boundary(self, region, height):
-        # type: (geo.Curve, float) -> Optional[geo.Curve]
-        """주어진 높이에서 정북(정남)사선 적용 후 남는 단일 최대영역을 반환한다."""
+    def _compute_buildable_boundary(self, region, base_segments, height):
+        # type: (geo.Curve, List[geo.Curve], float) -> Optional[geo.Curve]
         if not region:
             return None
-        if not self.base_crvs:
+        if not base_segments:
             return region
 
         h = float(height)
         cutters = []
-        for base in self.base_crvs:
+        for base_seg in base_segments:
             if h < self.base_height:
                 depth = self.base_offset
             else:
-                depth = self.ratio * (h - float(base.height))
+                depth = self.ratio * h
 
-            # buildable 영역은 base curve에서 대지 내부 방향으로 줄어들어야 하므로
-            # 노출 방향(vec_exposure)의 반대 방향으로 오프셋한다.
             move_vec = geo.Vector3d(-self.vec_exposure)
             if move_vec.Length < 1e-9:
                 continue
             move_vec.Unitize()
             move_vec *= depth
 
-            moved = utils.move_crv(base.crv, move_vec)
-            strip = utils.make_closed_crv_from_crv_crv(base.crv, moved)
+            moved = utils.move_crv(base_seg, move_vec)
+            strip = utils.make_closed_crv_from_crv_crv(base_seg, moved)
             if strip and strip.IsValid:
                 cutters.append(strip)
 
@@ -328,35 +249,3 @@ class NorthSkyBuildableBoundaryCalculator(object):
         result_region = max(result_regions, key=lambda r: utils.get_area(r))
         simplified = result_region.Simplify(geo.CurveSimplifyOptions.All, TOL, 1.0)
         return simplified or result_region
-
-
-def compute_northsky_buildable_boundary(
-    lot_region,
-    vec_exposure,
-    max_distance,
-    neighbor_lot_crvs_without_gong,
-    is_center_start,
-    height,
-    ratio,
-    base_offset=0.0,
-    base_height=0.0,
-    excluded_lot_crvs=None,
-):
-    # type: (geo.Curve, geo.Vector3d, float, List[geo.Curve], bool, float, float, float, float, Optional[List[geo.Curve]]) -> Optional[geo.Curve]
-    """정북(정남) 사선 기준선 계산 후 높이별 건축가능영역 경계를 반환한다."""
-    base_crvs = compute_northsky_base_crvs(
-        lot_region=lot_region,
-        vec_exposure=vec_exposure,
-        max_distance=max_distance,
-        neighbor_lot_crvs_without_gong=neighbor_lot_crvs_without_gong,
-        is_center_start=is_center_start,
-        excluded_lot_crvs=excluded_lot_crvs,
-    )
-    calc = NorthSkyBuildableBoundaryCalculator(
-        base_crvs=base_crvs,
-        vec_exposure=vec_exposure,
-        ratio=ratio,
-        base_offset=base_offset,
-        base_height=base_height,
-    )
-    return calc.get_buildable_boundary(lot_region, height)
