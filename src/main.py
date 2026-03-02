@@ -28,6 +28,11 @@ try:
 except Exception:
     import northsky  # type: ignore
 
+import importlib
+
+
+importlib.reload(northsky)
+
 
 def compute_northsky_base_crvs(
     lot_region,
@@ -88,4 +93,11 @@ if __name__ == "__main__":
             is_center_start,
             excluded_lot_regions,
         )
-        northsky_base_segments = [b.crv for b in northsky_base_crvs]
+        northsky_base_segments = compute_northsky_base_segments(
+            target_lot_region,
+            other_lot_regions,
+            vec_exposure,
+            max_distance,
+            is_center_start,
+            excluded_lot_regions,
+        )

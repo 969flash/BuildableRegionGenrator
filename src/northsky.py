@@ -29,6 +29,10 @@ except Exception:
     # GH에서 폴더 import (src 폴더가 sys.path에 올라간 경우)
     import utils  # type: ignore
 
+import importlib
+
+
+importlib.reload(utils)
 
 ANGLE_90_DEGREE = math.pi / 2.0
 TOL = getattr(utils, "TOL", 0.001)
