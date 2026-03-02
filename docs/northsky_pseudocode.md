@@ -72,7 +72,9 @@ function compute_northsky_base_crvs(
 
     result_segments = []
 
-    for seg_base in get_target_segs(lot_region, vec_exposure):
+    # 기준 변은 보호 방향(vec_exposure)의 반대측 외곽면을 선택
+    # (정북사선: vec_exposure=북 -> 북측 변 선택)
+    for seg_base in get_target_segs(lot_region, -vec_exposure):
         exposure_segs = get_exposure_base_segs(
             seg_base,
             vec_exposure,

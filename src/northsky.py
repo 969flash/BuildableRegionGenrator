@@ -8,8 +8,10 @@
 Public API:
 - BaseCrv
 - NorthSkyBaseCurveCalculator
+- NorthSkyBuildableBoundaryCalculator
 - compute_northsky_base_crvs
 - compute_northsky_base_segments
+- compute_northsky_buildable_boundary
 """
 
 try:
@@ -187,7 +189,10 @@ def compute_northsky_base_crvs(
     crvs_check = list(neighbor_lot_crvs_without_gong) + [lot_region]
 
     result_bases = []  # type: List[geo.Curve]
-    for seg_base in get_target_segs(lot_region, vec_exposure):
+    # 정북/정남 vec_exposure(보호 방향) 기준으로,
+    # 기준 변(base)은 그 반대측 외곽면에서 시작되어야 한다.
+    # 예) 정북(vec_exposure=북) -> 북측 변 선택(내부법선은 남쪽)
+    for seg_base in get_target_segs(lot_region, -vec_exposure):
         segs_exposure = get_exposure_base_segs(
             seg_base, vec_exposure, crvs_check, max_distance
         )
@@ -264,3 +269,94 @@ class NorthSkyBaseCurveCalculator(object):
             is_center_start=self.is_center_start,
             excluded_lot_crvs=self.excluded_lot_crvs,
         )
+
+
+class NorthSkyBuildableBoundaryCalculator(object):
+    """정북/정남 사선 기준, 높이별 건축가능영역 경계를 계산한다."""
+
+    def __init__(
+        self,
+        base_crvs,
+        vec_exposure,
+        ratio,
+        base_offset=0.0,
+        base_height=0.0,
+    ):
+        # type: (List[BaseCrv], geo.Vector3d, float, float, float) -> None
+        self.base_crvs = [b for b in (base_crvs or []) if b and b.crv]
+        self.vec_exposure = geo.Vector3d(vec_exposure)
+        self.ratio = float(ratio)
+        self.base_offset = float(base_offset)
+        self.base_height = float(base_height)
+
+    def get_buildable_boundary(self, region, height):
+        # type: (geo.Curve, float) -> Optional[geo.Curve]
+        """주어진 높이에서 정북(정남)사선 적용 후 남는 단일 최대영역을 반환한다."""
+        if not region:
+            return None
+        if not self.base_crvs:
+            return region
+
+        h = float(height)
+        cutters = []
+        for base in self.base_crvs:
+            if h < self.base_height:
+                depth = self.base_offset
+            else:
+                depth = self.ratio * (h - float(base.height))
+
+            # buildable 영역은 base curve에서 대지 내부 방향으로 줄어들어야 하므로
+            # 노출 방향(vec_exposure)의 반대 방향으로 오프셋한다.
+            move_vec = geo.Vector3d(-self.vec_exposure)
+            if move_vec.Length < 1e-9:
+                continue
+            move_vec.Unitize()
+            move_vec *= depth
+
+            moved = utils.move_crv(base.crv, move_vec)
+            strip = utils.make_closed_crv_from_crv_crv(base.crv, moved)
+            if strip and strip.IsValid:
+                cutters.append(strip)
+
+        if not cutters:
+            return region
+
+        result_regions = utils.get_difference_regions_one_to_one(region, cutters)
+        if not result_regions:
+            return None
+
+        result_region = max(result_regions, key=lambda r: utils.get_area(r))
+        simplified = result_region.Simplify(geo.CurveSimplifyOptions.All, TOL, 1.0)
+        return simplified or result_region
+
+
+def compute_northsky_buildable_boundary(
+    lot_region,
+    vec_exposure,
+    max_distance,
+    neighbor_lot_crvs_without_gong,
+    is_center_start,
+    height,
+    ratio,
+    base_offset=0.0,
+    base_height=0.0,
+    excluded_lot_crvs=None,
+):
+    # type: (geo.Curve, geo.Vector3d, float, List[geo.Curve], bool, float, float, float, float, Optional[List[geo.Curve]]) -> Optional[geo.Curve]
+    """정북(정남) 사선 기준선 계산 후 높이별 건축가능영역 경계를 반환한다."""
+    base_crvs = compute_northsky_base_crvs(
+        lot_region=lot_region,
+        vec_exposure=vec_exposure,
+        max_distance=max_distance,
+        neighbor_lot_crvs_without_gong=neighbor_lot_crvs_without_gong,
+        is_center_start=is_center_start,
+        excluded_lot_crvs=excluded_lot_crvs,
+    )
+    calc = NorthSkyBuildableBoundaryCalculator(
+        base_crvs=base_crvs,
+        vec_exposure=vec_exposure,
+        ratio=ratio,
+        base_offset=base_offset,
+        base_height=base_height,
+    )
+    return calc.get_buildable_boundary(lot_region, height)

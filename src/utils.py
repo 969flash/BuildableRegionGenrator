@@ -496,6 +496,128 @@ def has_region_intersection(
     return False
 
 
+def move_crv(crv_to_move: geo.Curve, vec: geo.Vector3d) -> geo.Curve:
+    """단일라인 crv를 vec 만큼 이동시킨다."""
+    if not crv_to_move:
+        return None
+    crv_moved = crv_to_move.DuplicateCurve()
+    crv_moved.Translate(vec)
+    return crv_moved
+
+
+def get_joined_crv(crvs: List[geo.Curve], tol: float = TOL) -> Optional[geo.Curve]:
+    """커브들을 조인해서 가능하면 단일 커브를 반환한다."""
+    joined = get_joined_crvs(crvs, tol)
+    if not joined:
+        return None
+    if len(joined) == 1:
+        return joined[0]
+
+    closed = [c for c in joined if c and c.IsClosed]
+    if closed:
+        return max(closed, key=lambda c: get_area(c))
+    return max(joined, key=lambda c: c.GetLength())
+
+
+def make_closed_crv_from_crv_crv(
+    crv_a: geo.Curve, crv_b: geo.Curve, check_intersection: bool = True
+) -> Optional[geo.Curve]:
+    """두 커브의 끝을 연결해 닫힌 영역 커브를 만든다."""
+    if not crv_a or not crv_b:
+        return None
+
+    crv_to_cap0 = geo.LineCurve(crv_a.PointAtStart, crv_b.PointAtStart)
+    crv_to_cap1 = geo.LineCurve(crv_a.PointAtEnd, crv_b.PointAtEnd)
+    if check_intersection and has_intersection(crv_to_cap0, crv_to_cap1):
+        crv_to_cap0 = geo.LineCurve(crv_a.PointAtStart, crv_b.PointAtEnd)
+        crv_to_cap1 = geo.LineCurve(crv_a.PointAtEnd, crv_b.PointAtStart)
+
+    return get_joined_crv([crv_a, crv_b, crv_to_cap0, crv_to_cap1])
+
+
+def _curve_boolean_difference(
+    subject: geo.Curve, cutter: geo.Curve, tol: float = TOL
+) -> List[geo.Curve]:
+    """닫힌 커브 2개에 대한 차집합 결과를 리스트로 반환한다."""
+    if not subject or not cutter:
+        return [subject] if subject else []
+
+    try:
+        diff = geo.Curve.CreateBooleanDifference(subject, cutter, tol)
+    except TypeError:
+        try:
+            diff = geo.Curve.CreateBooleanDifference(subject, cutter)
+        except Exception:
+            diff = None
+    except Exception:
+        diff = None
+
+    if diff:
+        return [d for d in diff if d and d.IsValid]
+
+    if not has_region_intersection(subject, cutter, tol):
+        return [subject]
+
+    return []
+
+
+def get_difference_regions(
+    regions_a: Union[geo.Curve, List[geo.Curve]],
+    regions_b: Union[geo.Curve, List[geo.Curve]],
+    tol: float = TOL,
+    remove_particles: bool = True,
+    plane: Optional[geo.Plane] = None,
+) -> List[geo.Curve]:
+    """regions_a - regions_b 차집합 결과를 리스트로 반환한다."""
+    if not isinstance(regions_a, list):
+        regions_a = [regions_a]
+    if not isinstance(regions_b, list):
+        regions_b = [regions_b]
+
+    result = [r for r in regions_a if r]
+    cutters = [c for c in regions_b if c]
+    for cutter in cutters:
+        next_regions = []
+        for region in result:
+            next_regions += _curve_boolean_difference(region, cutter, tol)
+        result = next_regions
+        if not result:
+            return []
+
+    if not remove_particles:
+        return result
+
+    area_tol = max(tol * tol, 1e-8)
+    filtered = []
+    for region in result:
+        try:
+            area = geo.AreaMassProperties.Compute(region).Area
+        except Exception:
+            area = 0.0
+        if area > area_tol:
+            filtered.append(region)
+    return filtered
+
+
+def get_difference_regions_one_to_one(
+    region_a: geo.Curve,
+    regions_b: List[geo.Curve],
+    tol: float = TOL,
+    remove_particles: bool = True,
+    plane: Optional[geo.Plane] = None,
+) -> List[geo.Curve]:
+    """region_a 에서 regions_b를 하나씩 차집합 해준다."""
+    if not isinstance(region_a, geo.Curve):
+        raise ValueError("region_a must be curve")
+
+    result = [region_a]
+    for crv in regions_b:
+        result = get_difference_regions(result, crv, tol, remove_particles, plane)
+        if not result:
+            return []
+    return result
+
+
 def _normalize_ghcomp_result(result):
     """ghpythonlib.components 결과를 Curve 리스트로 정규화."""
     if result is None:
@@ -613,12 +735,18 @@ def subtract_interval(
     return [i for i in out if i.Length > 0]
 
 
-def get_joined_crvs(crvs: List[geo.Curve], tol: float = TOL) -> List[geo.Curve]:
+def get_joined_crvs(
+    crvs: List[geo.Curve], tol: float = TOL, preserve_direction: bool = False
+) -> List[geo.Curve]:
     """커브들을 Join한 결과를 리스트로 반환합니다."""
     if not crvs:
         return []
     try:
-        joined = geo.Curve.JoinCurves([c for c in crvs if c], tol)
+        inputs = [c for c in crvs if c]
+        if preserve_direction:
+            joined = geo.Curve.JoinCurves(inputs, tol, True)
+        else:
+            joined = geo.Curve.JoinCurves(inputs, tol)
         return [c for c in joined if c]
     except Exception:
         return [c for c in crvs if c]
