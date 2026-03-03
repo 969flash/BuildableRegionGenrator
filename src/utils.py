@@ -12,13 +12,9 @@ except Exception:
 import os
 from typing import List, Tuple, Any, Optional, Union
 import ghpythonlib.components as ghcomp
+import Rhino  # type: ignore
 import Rhino.Geometry as geo
 import math
-
-try:
-    import pyclipper  # type: ignore
-except Exception:
-    pyclipper = None  # type: ignore
 
 try:
     from . import constants  # type: ignore
@@ -27,7 +23,8 @@ except Exception:
 
 TOL = constants.TOL  # 연산 허용 오차
 RAW_TOL = constants.RAW_TOL  # 원시 데이터 허용 오차
-CLIPPER_SCALE = 100000.0
+BIGNUM = 1000000000
+CLIPPER_TOL = TOL
 
 
 def _to_closed_polyline_points(crv: geo.Curve) -> Optional[List[geo.Point3d]]:
@@ -67,98 +64,80 @@ def _to_closed_polyline_points(crv: geo.Curve) -> Optional[List[geo.Point3d]]:
     return pts
 
 
-def _polyline_points_to_clipper_path(
-    pts: List[geo.Point3d], scale: float
-) -> List[Tuple[int, int]]:
-    """닫힌 polyline points를 클리퍼 int path로 변환한다."""
-    path = []
-    for p in pts:
-        path.append((int(round(p.X * scale)), int(round(p.Y * scale))))
+class Comp:
+    """레거시 comp 인터페이스 호환 래퍼 (ghpythonlib ClipperComponents 기반)."""
 
-    # Clipper는 닫힌 경로에서 끝점 중복이 없어도 되므로 제거
-    if len(path) >= 2 and path[0] == path[-1]:
-        path = path[:-1]
+    class _PolylineOffsetResult:
+        def __init__(self):
+            self.contour = None  # type: Optional[List[geo.Curve]]
+            self.holes = None  # type: Optional[List[geo.Curve]]
 
-    # 연속 중복점 제거
-    dedup = []
-    for xy in path:
-        if not dedup or xy != dedup[-1]:
-            dedup.append(xy)
-    return dedup
-
-
-def _clipper_path_to_polyline_curve(
-    path: List[Tuple[int, int]], scale: float
-) -> Optional[geo.PolylineCurve]:
-    """클리퍼 int path를 닫힌 PolylineCurve로 변환한다."""
-    if not path or len(path) < 3:
-        return None
-
-    pts = [geo.Point3d(float(x) / scale, float(y) / scale, 0.0) for x, y in path]
-    if pts[0].DistanceTo(pts[-1]) > TOL:
-        pts.append(pts[0])
-
-    crv = geo.PolylineCurve(pts)
-    if not crv or not crv.IsValid or not crv.IsClosed:
-        return None
-    return crv
-
-
-class _CompCompat:
-    """레거시 comp 인터페이스 호환 래퍼 (polyline_offset)."""
-
-    def __init__(self, scale: float = CLIPPER_SCALE):
-        self.scale = scale
-
-    def polyline_offset(self, crv: geo.Curve, distance: float) -> List[geo.Curve]:
+    def polyline_offset(
+        self,
+        crv: geo.Curve,
+        distance: float,
+        miter: float = BIGNUM,
+        closed_fillet: int = 2,
+        open_fillet: int = 2,
+        tol: float = Rhino.RhinoMath.ZeroTolerance,
+    ):
+        # type: (...) -> _PolylineOffsetResult
         if not crv:
-            return []
+            result = Comp._PolylineOffsetResult()
+            result.contour = []
+            result.holes = []
+            return result
 
         pts = _to_closed_polyline_points(crv)
         if not pts:
-            return []
+            result = Comp._PolylineOffsetResult()
+            result.contour = []
+            result.holes = []
+            return result
 
-        # 우선 클리퍼(pyclipper) 사용
-        if pyclipper is not None:
-            try:
-                path = _polyline_points_to_clipper_path(pts, self.scale)
-                if len(path) < 3:
-                    return []
+        polyline_crv = geo.PolylineCurve(pts)
+        plane = geo.Plane(
+            geo.Point3d(0, 0, polyline_crv.PointAtEnd.Z), geo.Vector3d.ZAxis
+        )
 
-                delta = int(round(float(distance) * self.scale))
-                if delta == 0:
-                    return [geo.PolylineCurve(pts)]
-
-                co = pyclipper.PyclipperOffset()
-                co.AddPath(path, pyclipper.JT_MITER, pyclipper.ET_CLOSEDPOLYGON)
-                out_paths = co.Execute(delta)
-
-                out_crvs = []
-                for out_path in out_paths:
-                    crv_out = _clipper_path_to_polyline_curve(out_path, self.scale)
-                    if crv_out:
-                        out_crvs.append(crv_out)
-                return out_crvs
-            except Exception:
-                pass
-
-        # pyclipper 미사용 환경 fallback
         try:
-            out = crv.Offset(
-                geo.Plane.WorldXY,
-                float(distance),
-                TOL,
-                geo.CurveOffsetCornerStyle.Sharp,
+            raw = ghcomp.ClipperComponents.PolylineOffset(
+                [polyline_crv],
+                [float(distance)],
+                plane,
+                tol,
+                closed_fillet,
+                open_fillet,
+                miter,
             )
         except Exception:
-            out = None
+            raw = None
 
-        if not out:
-            return []
-        return [c for c in out if c and c.IsClosed]
+        result = Comp._PolylineOffsetResult()
+        if raw is None:
+            result.contour = []
+            result.holes = []
+            return result
+
+        for name in ("contour", "holes"):
+            values = None
+            try:
+                values = raw[name]
+            except Exception:
+                values = getattr(raw, name, None)
+
+            if values is None:
+                values = []
+            elif not isinstance(values, list):
+                values = [values]
+
+            values = [c for c in values if c and c.IsClosed]
+            setattr(result, name, values)
+
+        return result
 
 
-comp = _CompCompat()
+comp = Comp()
 
 
 class Parcel:
@@ -668,14 +647,31 @@ def offset_region_inward(region: geo.Curve, dist: float) -> Optional[geo.Curve]:
     if not region.IsClosed:
         return None
 
-    for delta in (-abs(float(dist)), abs(float(dist))):
-        offset_crvs = comp.polyline_offset(region, delta)
-        if not offset_crvs:
-            continue
+    result = comp.polyline_offset(region, -abs(float(dist)))
+    holes = result.holes if result else None
+    if holes:
+        return holes[0]
 
-        for crv in offset_crvs:
-            if crv and crv.IsClosed:
-                return crv
+    return None
+
+
+def offset_region_outward(region: geo.Curve, dist: float) -> Optional[geo.Curve]:
+    """닫힌 영역 커브를 외부로 offset 해서 단일 커브를 반환한다.
+
+    - 실패 시 None 반환
+    - contour 결과를 반환
+    """
+    if not region:
+        return None
+    if not dist:
+        return region
+    if not region.IsClosed:
+        return None
+
+    result = comp.polyline_offset(region, abs(float(dist)))
+    contour = result.contour if result else None
+    if contour:
+        return contour[0]
 
     return None
 

@@ -10,6 +10,7 @@ import itertools
 import math
 
 import Rhino.Geometry as geo  # type: ignore
+import scriptcontext as sc  # type: ignore
 
 try:
     from . import utils  # type: ignore
@@ -68,15 +69,13 @@ class NorthSkyCalculator(object):
         self.base_segments = []  # type: List[geo.Curve]
         self.buildable_boundary = None  # type: Optional[geo.Curve]
         self.buildable_boundary_raw = None  # type: Optional[geo.Curve]
-        self.lot_region_inward = None  # type: Optional[geo.Curve]
+        self.lot_region_inward = lot_region  # type: geo.Curve
 
         self.base_segments = self._compute_base_segments(
             lot_region=self.lot_region,
             neighbor_lot_crvs_without_gong=self.neighbor_lot_crvs_without_gong,
         )
-        if self.parcel_inward_offset <= 0.0:
-            self.lot_region_inward = self.lot_region
-        else:
+        if self.parcel_inward_offset > 0:
             self.lot_region_inward = utils.offset_region_inward(
                 self.lot_region, self.parcel_inward_offset
             )

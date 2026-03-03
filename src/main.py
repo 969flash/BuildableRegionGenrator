@@ -68,3 +68,4 @@ if __name__ == "__main__":
     northsky_calculator.compute(height=float(height))
     northsky_base_segments = northsky_calculator.base_segments
     northsky_buildable_boundary = northsky_calculator.buildable_boundary
+    offset_lot_region = northsky_calculator.lot_region_inward
