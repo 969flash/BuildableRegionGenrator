@@ -647,7 +647,7 @@ def offset_region_inward(region: geo.Curve, dist: float) -> Optional[geo.Curve]:
     if not region.IsClosed:
         return None
 
-    result = comp.polyline_offset(region, -abs(float(dist)))
+    result = comp.polyline_offset(region, abs(float(dist)))
     holes = result.holes if result else None
     if holes:
         return holes[0]
