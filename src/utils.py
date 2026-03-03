@@ -15,8 +15,13 @@ import ghpythonlib.components as ghcomp
 import Rhino.Geometry as geo
 import math
 
-TOL = 0.001  # 연산 허용 오차
-RAW_TOL = 0.1  # 원시 데이터 허용 오차
+try:
+    from . import constants  # type: ignore
+except Exception:
+    import constants  # type: ignore
+
+TOL = constants.TOL  # 연산 허용 오차
+RAW_TOL = constants.RAW_TOL  # 원시 데이터 허용 오차
 
 
 class Parcel:
@@ -27,7 +32,8 @@ class Parcel:
         region: geo.Curve,
         pnu: str,
         jimok: str,
-        record: List[Any],
+        landuse_code: str,
+        landuse: str,
         hole_regions: List[geo.Curve],
     ):
         self.region = region  # 외부 경계 커브
@@ -36,7 +42,8 @@ class Parcel:
         )  # 내부 구멍들
         self.pnu = pnu
         self.jimok = jimok
-        self.record = record
+        self.landuse_code = landuse_code
+        self.landuse = landuse
         self._area = None
 
     @property
@@ -99,10 +106,11 @@ class Lot(Parcel):
         curve_crv: geo.Curve,
         pnu: str,
         jimok: str,
-        record: List[Any],
+        landuse_code: str,
+        landuse: str,
         hole_regions: List[geo.Curve] = None,
     ):
-        super().__init__(curve_crv, pnu, jimok, record, hole_regions)
+        super().__init__(curve_crv, pnu, jimok, landuse_code, landuse, hole_regions)
         self.is_flag_lot = False  # 자루형 토지 여부
         self.has_road_access = False  # 도로 접근 여부
 
@@ -445,11 +453,16 @@ def create_parcel_from_shape(
 
     pnu = get_field_value(record, fields, "A1")  # 구 PNU
     jimok = get_field_value(record, fields, "A11")  # 구 JIMOK
+    raw_landuse_code = get_field_value(record, fields, "A13", default="")
+    landuse_code = "" if raw_landuse_code is None else str(raw_landuse_code).strip()
+    if landuse_code.endswith(".0"):
+        landuse_code = landuse_code[:-2]
+    landuse = constants.LANDUSE_MAP.get(landuse_code, constants.LANDUSE_UNKNOWN)
 
     if jimok == "도로":
-        parcel = Road(boundary_region, pnu, jimok, record, hole_regions)
+        parcel = Road(boundary_region, pnu, jimok, landuse_code, landuse, hole_regions)
     else:
-        parcel = Lot(boundary_region, pnu, jimok, record, hole_regions)
+        parcel = Lot(boundary_region, pnu, jimok, landuse_code, landuse, hole_regions)
 
     return parcel if parcel.preprocess_curve() else None
 
@@ -627,6 +640,9 @@ def _normalize_ghcomp_result(result):
         result = result[0] if result else []
     if isinstance(result, list):
         return [c for c in result if c]
+    # iterable이지만 list가 아닌경우
+    if hasattr(result, "__iter__") and not isinstance(result, str):
+        return [c for c in result if c]
     return [result]
 
 
@@ -638,7 +654,7 @@ def get_union_regions(crvs: List[geo.Curve]) -> List[geo.Curve]:
         return _normalize_ghcomp_result(ghcomp.RegionUnion(crvs))
     except Exception:
         # 실패 시 원본 반환(최소한의 동작 보장)
-        return [c for c in crvs if c]
+        return crvs
 
 
 def get_intersection_regions(
