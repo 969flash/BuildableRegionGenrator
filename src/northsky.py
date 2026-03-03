@@ -10,6 +10,7 @@ import itertools
 import math
 
 import Rhino.Geometry as geo  # type: ignore
+import scriptcontext as sc  # type: ignore
 
 try:
     from . import utils  # type: ignore
@@ -148,6 +149,12 @@ class NorthSkyCalculator(object):
         # 깔금한 지오메트리 연산을위해 인접대지를 한번에 합친다.
         intersections = utils.get_intersection_regions(
             [region], utils.get_union_regions(filtered_neighbor_lots)
+        )
+        sc.sticky["debug_intersections"] = (
+            intersections,
+            [region],
+            utils.get_union_regions(filtered_neighbor_lots),
+            filtered_neighbor_lots,
         )
 
         if not intersections:

@@ -10,6 +10,7 @@ try:
 except Exception:
     shapefile = None  # type: ignore
 import os
+import functools
 from typing import List, Tuple, Any, Optional, Union
 import ghpythonlib.components as ghcomp
 import Rhino  # type: ignore
@@ -25,6 +26,45 @@ TOL = constants.TOL  # 연산 허용 오차
 RAW_TOL = constants.RAW_TOL  # 원시 데이터 허용 오차
 BIGNUM = 1000000000
 CLIPPER_TOL = TOL
+OP_TOL = TOL
+
+
+def convert_io_to_list(func):
+    """인풋/아웃풋의 Curve를 리스트로 정규화한다."""
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        new_args = []
+        for arg in args:
+            if isinstance(arg, geo.Curve):
+                arg = [arg]
+            new_args.append(arg)
+
+        result = func(*new_args, **kwargs)
+
+        if isinstance(result, geo.Curve):
+            result = [result]
+
+        if hasattr(result, "__dict__"):
+            for key, values in result.__dict__.items():
+                if isinstance(values, geo.Curve):
+                    setattr(result, key, [values])
+
+        return result
+
+    return wrapper
+
+
+def not_allow_list_input(func):
+    """리스트 입력을 허용하지 않는 함수 데코레이터."""
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        if any(isinstance(arg, list) for arg in args):
+            raise ValueError("{}'s must be one".format(func.__name__))
+        return func(*args, **kwargs)
+
+    return wrapper
 
 
 def _to_closed_polyline_points(crv: geo.Curve) -> Optional[List[geo.Point3d]]:
@@ -71,6 +111,86 @@ class Comp:
         def __init__(self):
             self.contour = None  # type: Optional[List[geo.Curve]]
             self.holes = None  # type: Optional[List[geo.Curve]]
+
+    @convert_io_to_list
+    def _polyline_boolean(
+        self,
+        crvs0,
+        crvs1,
+        boolean_type=None,
+        plane=None,
+        tol=CLIPPER_TOL,
+    ):
+        # type: (List[geo.Curve], List[geo.Curve], int, Optional[geo.Plane], float) -> List[geo.Curve]
+        if not crvs0 or not crvs1:
+            return []
+        if plane is None:
+            plane = geo.Plane.WorldXY
+
+        try:
+            result = ghcomp.ClipperComponents.PolylineBoolean(
+                crvs0, crvs1, boolean_type, plane, tol
+            )
+            return _normalize_ghcomp_result(result)
+        except Exception:
+            return []
+
+    def polyline_boolean_intersection(
+        self,
+        crvs0,
+        crvs1,
+        plane=None,
+        tol=CLIPPER_TOL,
+    ):
+        # type: (Union[geo.Curve, List[geo.Curve]], Union[geo.Curve, List[geo.Curve]], Optional[geo.Plane], float) -> List[geo.Curve]
+        return self._polyline_boolean(crvs0, crvs1, 0, plane, tol)
+
+    def polyline_boolean_union(
+        self,
+        crvs0,
+        crvs1,
+        plane=None,
+        tol=CLIPPER_TOL,
+    ):
+        # type: (Union[geo.Curve, List[geo.Curve]], Union[geo.Curve, List[geo.Curve]], Optional[geo.Plane], float) -> List[geo.Curve]
+        return self._polyline_boolean(crvs0, crvs1, 1, plane, tol)
+
+    def polyline_boolean_difference(
+        self,
+        crvs0,
+        crvs1,
+        plane=None,
+        tol=CLIPPER_TOL,
+    ):
+        # type: (Union[geo.Curve, List[geo.Curve]], Union[geo.Curve, List[geo.Curve]], Optional[geo.Plane], float) -> List[geo.Curve]
+        return self._polyline_boolean(crvs0, crvs1, 2, plane, tol)
+
+    def polyline_boolean_xor(
+        self,
+        crvs0,
+        crvs1,
+        plane=None,
+        tol=CLIPPER_TOL,
+    ):
+        # type: (Union[geo.Curve, List[geo.Curve]], Union[geo.Curve, List[geo.Curve]], Optional[geo.Plane], float) -> List[geo.Curve]
+        return self._polyline_boolean(crvs0, crvs1, 3, plane, tol)
+
+    @not_allow_list_input
+    def _polyline_containment(self, region, pt, plane=None, tol=OP_TOL):
+        # type: (geo.Curve, geo.Point3d, Optional[geo.Plane], float) -> int
+        return ghcomp.ClipperComponents.PolylineContainment(region, pt, plane, tol)
+
+    def polyline_containment_inside(self, region, pt, plane=None, tol=OP_TOL):
+        # type: (geo.Curve, geo.Point3d, Optional[geo.Plane], float) -> bool
+        return self._polyline_containment(region, pt, plane, tol) == 1
+
+    def polyline_containment_on(self, region, pt, plane=None, tol=OP_TOL):
+        # type: (geo.Curve, geo.Point3d, Optional[geo.Plane], float) -> bool
+        return self._polyline_containment(region, pt, plane, tol) == -1
+
+    def polyline_containment_outside(self, region, pt, plane=None, tol=OP_TOL):
+        # type: (geo.Curve, geo.Point3d, Optional[geo.Plane], float) -> bool
+        return self._polyline_containment(region, pt, plane, tol) == 0
 
     def polyline_offset(
         self,
@@ -748,10 +868,17 @@ def get_difference_regions(
     result = [r for r in regions_a if r]
     cutters = [c for c in regions_b if c]
     for cutter in cutters:
-        next_regions = []
-        for region in result:
-            next_regions += _curve_boolean_difference(region, cutter, tol)
-        result = next_regions
+        next_regions = comp.polyline_boolean_difference(
+            result, [cutter], plane=plane, tol=CLIPPER_TOL
+        )
+        if not next_regions:
+            # fallback: Rhino boolean
+            fallback = []
+            for region in result:
+                fallback += _curve_boolean_difference(region, cutter, tol)
+            next_regions = fallback
+
+        result = [r for r in next_regions if r]
         if not result:
             return []
 
@@ -805,22 +932,45 @@ def _normalize_ghcomp_result(result):
 
 
 def get_union_regions(crvs: List[geo.Curve]) -> List[geo.Curve]:
-    """RegionUnion을 수행해 결과 영역 커브들을 반환합니다."""
+    """Clipper PolylineBoolean Union을 우선 사용해 결과 영역 커브들을 반환합니다."""
     if not crvs:
         return []
+
+    valid = [c for c in crvs if c]
+    if not valid:
+        return []
+
+    try:
+        unioned = [valid[0]]
+        for crv in valid[1:]:
+            merged = comp.polyline_boolean_union(unioned, [crv], tol=CLIPPER_TOL)
+            unioned = merged if merged else unioned
+        return [c for c in unioned if c]
+    except Exception:
+        pass
+
     try:
         return _normalize_ghcomp_result(ghcomp.RegionUnion(crvs))
     except Exception:
         # 실패 시 원본 반환(최소한의 동작 보장)
-        return crvs
+        return valid
 
 
 def get_intersection_regions(
     regions_a: List[geo.Curve], regions_b: List[geo.Curve]
 ) -> List[geo.Curve]:
-    """RegionIntersection을 수행해 교차 영역 커브들을 반환합니다."""
+    """Clipper PolylineBoolean Intersection을 우선 사용해 교차 영역 커브들을 반환합니다."""
     if not regions_a or not regions_b:
         return []
+
+    try:
+        clipped = comp.polyline_boolean_intersection(
+            regions_a, regions_b, tol=CLIPPER_TOL
+        )
+        if clipped:
+            return [c for c in clipped if c]
+    except Exception:
+        pass
 
     try:
         return _normalize_ghcomp_result(ghcomp.RegionIntersection(regions_a, regions_b))
