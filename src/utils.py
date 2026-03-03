@@ -16,12 +16,149 @@ import Rhino.Geometry as geo
 import math
 
 try:
+    import pyclipper  # type: ignore
+except Exception:
+    pyclipper = None  # type: ignore
+
+try:
     from . import constants  # type: ignore
 except Exception:
     import constants  # type: ignore
 
 TOL = constants.TOL  # 연산 허용 오차
 RAW_TOL = constants.RAW_TOL  # 원시 데이터 허용 오차
+CLIPPER_SCALE = 100000.0
+
+
+def _to_closed_polyline_points(crv: geo.Curve) -> Optional[List[geo.Point3d]]:
+    """Curve를 닫힌 polyline points로 변환한다."""
+    if not crv:
+        return None
+
+    pts = None
+    try:
+        if isinstance(crv, geo.PolylineCurve):
+            pts = list(crv.ToPolyline())
+    except Exception:
+        pts = None
+
+    if not pts:
+        try:
+            ok, polyline = crv.TryGetPolyline()
+            if ok and polyline:
+                pts = list(polyline)
+        except Exception:
+            pts = None
+
+    if not pts:
+        try:
+            pl_crv = crv.ToPolyline(0, 0, RAW_TOL, RAW_TOL, RAW_TOL, 0, 0, 0, True)
+            if pl_crv:
+                pts = list(pl_crv.ToPolyline())
+        except Exception:
+            pts = None
+
+    if not pts or len(pts) < 3:
+        return None
+
+    if pts[0].DistanceTo(pts[-1]) > TOL:
+        pts.append(pts[0])
+
+    return pts
+
+
+def _polyline_points_to_clipper_path(
+    pts: List[geo.Point3d], scale: float
+) -> List[Tuple[int, int]]:
+    """닫힌 polyline points를 클리퍼 int path로 변환한다."""
+    path = []
+    for p in pts:
+        path.append((int(round(p.X * scale)), int(round(p.Y * scale))))
+
+    # Clipper는 닫힌 경로에서 끝점 중복이 없어도 되므로 제거
+    if len(path) >= 2 and path[0] == path[-1]:
+        path = path[:-1]
+
+    # 연속 중복점 제거
+    dedup = []
+    for xy in path:
+        if not dedup or xy != dedup[-1]:
+            dedup.append(xy)
+    return dedup
+
+
+def _clipper_path_to_polyline_curve(
+    path: List[Tuple[int, int]], scale: float
+) -> Optional[geo.PolylineCurve]:
+    """클리퍼 int path를 닫힌 PolylineCurve로 변환한다."""
+    if not path or len(path) < 3:
+        return None
+
+    pts = [geo.Point3d(float(x) / scale, float(y) / scale, 0.0) for x, y in path]
+    if pts[0].DistanceTo(pts[-1]) > TOL:
+        pts.append(pts[0])
+
+    crv = geo.PolylineCurve(pts)
+    if not crv or not crv.IsValid or not crv.IsClosed:
+        return None
+    return crv
+
+
+class _CompCompat:
+    """레거시 comp 인터페이스 호환 래퍼 (polyline_offset)."""
+
+    def __init__(self, scale: float = CLIPPER_SCALE):
+        self.scale = scale
+
+    def polyline_offset(self, crv: geo.Curve, distance: float) -> List[geo.Curve]:
+        if not crv:
+            return []
+
+        pts = _to_closed_polyline_points(crv)
+        if not pts:
+            return []
+
+        # 우선 클리퍼(pyclipper) 사용
+        if pyclipper is not None:
+            try:
+                path = _polyline_points_to_clipper_path(pts, self.scale)
+                if len(path) < 3:
+                    return []
+
+                delta = int(round(float(distance) * self.scale))
+                if delta == 0:
+                    return [geo.PolylineCurve(pts)]
+
+                co = pyclipper.PyclipperOffset()
+                co.AddPath(path, pyclipper.JT_MITER, pyclipper.ET_CLOSEDPOLYGON)
+                out_paths = co.Execute(delta)
+
+                out_crvs = []
+                for out_path in out_paths:
+                    crv_out = _clipper_path_to_polyline_curve(out_path, self.scale)
+                    if crv_out:
+                        out_crvs.append(crv_out)
+                return out_crvs
+            except Exception:
+                pass
+
+        # pyclipper 미사용 환경 fallback
+        try:
+            out = crv.Offset(
+                geo.Plane.WorldXY,
+                float(distance),
+                TOL,
+                geo.CurveOffsetCornerStyle.Sharp,
+            )
+        except Exception:
+            out = None
+
+        if not out:
+            return []
+        return [c for c in out if c and c.IsClosed]
+
+
+comp = _CompCompat()
 
 
 class Parcel:
@@ -516,6 +653,31 @@ def move_crv(crv_to_move: geo.Curve, vec: geo.Vector3d) -> geo.Curve:
     crv_moved = crv_to_move.DuplicateCurve()
     crv_moved.Translate(vec)
     return crv_moved
+
+
+def offset_region_inward(region: geo.Curve, dist: float) -> Optional[geo.Curve]:
+    """닫힌 영역 커브를 내부로 offset 해서 단일 커브를 반환한다.
+
+    - 실패 시 None 반환
+    - 면적 기반 필터/선택 없이, 유효한 닫힌 커브를 즉시 반환
+    """
+    if not region:
+        return None
+    if not dist:
+        return region
+    if not region.IsClosed:
+        return None
+
+    for delta in (-abs(float(dist)), abs(float(dist))):
+        offset_crvs = comp.polyline_offset(region, delta)
+        if not offset_crvs:
+            continue
+
+        for crv in offset_crvs:
+            if crv and crv.IsClosed:
+                return crv
+
+    return None
 
 
 def get_joined_crv(crvs: List[geo.Curve], tol: float = TOL) -> Optional[geo.Curve]:

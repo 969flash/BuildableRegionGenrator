@@ -42,9 +42,10 @@ if __name__ == "__main__":
     height = globals().get("height", 15.0)
     ratio = globals().get("ratio", 1.5)
     base_offset = globals().get("base_offset", 0.0)
-    base_height = globals().get("base_height", 0.0)
+    base_height = globals().get("base_height", 12.0)
+    parcel_inward_offset = globals().get("parcel_inward_offset", 1.0)
 
-    if not target_lot_region or not other_lot_regions:
+    if target_lot_region is None or other_lot_regions is None:
         raise ValueError("target_lot_region and other_lot_regions are required inputs.")
 
     northsky_base_segments = None
@@ -52,6 +53,8 @@ if __name__ == "__main__":
     northsky_calculator = None
 
     northsky_calculator = northsky.NorthSkyCalculator(
+        lot_region=target_lot_region,
+        neighbor_lot_crvs_without_gong=other_lot_regions,
         vec_exposure=vec_exposure,
         max_distance=float(max_distance),
         is_center_start=bool(is_center_start),
@@ -59,11 +62,9 @@ if __name__ == "__main__":
         ratio=float(ratio),
         base_offset=float(base_offset),
         base_height=float(base_height),
+        parcel_inward_offset=float(parcel_inward_offset),
         excluded_lot_crvs=excluded_lot_regions,
     )
-    northsky_calculator.compute(
-        lot_region=target_lot_region,
-        neighbor_lot_crvs_without_gong=other_lot_regions,
-    )
+    northsky_calculator.compute(height=float(height))
     northsky_base_segments = northsky_calculator.base_segments
     northsky_buildable_boundary = northsky_calculator.buildable_boundary

@@ -38,6 +38,8 @@ class NorthSkyCalculator(object):
 
     def __init__(
         self,
+        lot_region,
+        neighbor_lot_crvs_without_gong,
         vec_exposure,
         max_distance,
         is_center_start,
@@ -45,9 +47,13 @@ class NorthSkyCalculator(object):
         ratio,
         base_offset=0.0,
         base_height=0.0,
+        parcel_inward_offset=0.0,
         excluded_lot_crvs=None,
     ):
-        # type: (geo.Vector3d, float, bool, float, float, float, float, Optional[List[geo.Curve]]) -> None
+        # type: (geo.Curve, List[geo.Curve], geo.Vector3d, float, bool, float, float, float, float, float, Optional[List[geo.Curve]]) -> None
+        self.lot_region = lot_region
+        self.neighbor_lot_crvs_without_gong = list(neighbor_lot_crvs_without_gong)
+
         self.vec_exposure = geo.Vector3d(vec_exposure)
         self.max_distance = float(max_distance)
         self.is_center_start = bool(is_center_start)
@@ -56,21 +62,45 @@ class NorthSkyCalculator(object):
         self.ratio = float(ratio)
         self.base_offset = float(base_offset)
         self.base_height = float(base_height)
+        self.parcel_inward_offset = float(parcel_inward_offset)
         self.excluded_lot_crvs = excluded_lot_crvs
 
         self.base_segments = []  # type: List[geo.Curve]
         self.buildable_boundary = None  # type: Optional[geo.Curve]
+        self.buildable_boundary_raw = None  # type: Optional[geo.Curve]
+        self.lot_region_inward = None  # type: Optional[geo.Curve]
 
-    def compute(self, lot_region, neighbor_lot_crvs_without_gong):
-        # type: (geo.Curve, List[geo.Curve]) -> None
         self.base_segments = self._compute_base_segments(
-            lot_region=lot_region,
-            neighbor_lot_crvs_without_gong=neighbor_lot_crvs_without_gong,
+            lot_region=self.lot_region,
+            neighbor_lot_crvs_without_gong=self.neighbor_lot_crvs_without_gong,
         )
-        self.buildable_boundary = self._compute_buildable_boundary(
-            region=lot_region,
+        if self.parcel_inward_offset <= 0.0:
+            self.lot_region_inward = self.lot_region
+        else:
+            self.lot_region_inward = utils.offset_region_inward(
+                self.lot_region, self.parcel_inward_offset
+            )
+
+    def compute(self, height=None):
+        # type: (Optional[float]) -> None
+        if height is not None:
+            self.height = float(height)
+
+        self.buildable_boundary_raw = self._compute_buildable_boundary(
+            region=self.lot_region,
             base_segments=self.base_segments,
             height=self.height,
+        )
+
+        if not self.buildable_boundary_raw or not self.lot_region_inward:
+            self.buildable_boundary = None
+            return
+
+        intersections = utils.get_intersection_regions(
+            [self.buildable_boundary_raw], [self.lot_region_inward]
+        )
+        self.buildable_boundary = (
+            max(intersections, key=utils.get_area) if intersections else None
         )
 
     def _get_target_segs(self, boundary, vec, tol=math.radians(1)):

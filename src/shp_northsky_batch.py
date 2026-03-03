@@ -42,6 +42,7 @@ DEFAULT_IS_CENTER_START = True
 DEFAULT_RATIO = 1.5
 DEFAULT_BASE_OFFSET = 0.0
 DEFAULT_BASE_HEIGHT = 0.0
+DEFAULT_PARCEL_INWARD_OFFSET_M = 1.0
 
 
 def _normalize_landuse_code(value):
@@ -80,7 +81,7 @@ def _resolve_shp_path(shp_dir):
     return shp_files[0]
 
 
-def _compute_allowable_rows(shp_path):
+def _compute_allowable_rows(shp_path, include_counter=False):
     """대상 SHP에 대해 층별 허용면적 테이블(row dict 리스트) 생성."""
     shapes, records, fields = utils.read_shp_file(shp_path)
     parcels = utils.get_parcels_from_shapes(shapes, records, fields)
@@ -103,26 +104,26 @@ def _compute_allowable_rows(shp_path):
     for lot in target_lots:
         other_lot_regions = [other.region for other in lots if other is not lot]
 
-        for floor in range(1, MAX_FLOOR + 1):
-            height_m = FLOOR_HEIGHT_M * floor
+        calc = northsky.NorthSkyCalculator(
+            lot_region=lot.region,
+            neighbor_lot_crvs_without_gong=other_lot_regions,
+            vec_exposure=DEFAULT_VEC_EXPOSURE,
+            max_distance=total_height,
+            is_center_start=DEFAULT_IS_CENTER_START,
+            height=FLOOR_HEIGHT_M,
+            ratio=DEFAULT_RATIO,
+            base_offset=DEFAULT_BASE_OFFSET,
+            base_height=DEFAULT_BASE_HEIGHT,
+            parcel_inward_offset=DEFAULT_PARCEL_INWARD_OFFSET_M,
+            excluded_lot_crvs=None,
+        )
 
-            calc = northsky.NorthSkyCalculator(
-                vec_exposure=DEFAULT_VEC_EXPOSURE,
-                max_distance=total_height,
-                is_center_start=DEFAULT_IS_CENTER_START,
-                height=height_m,
-                ratio=DEFAULT_RATIO,
-                base_offset=DEFAULT_BASE_OFFSET,
-                base_height=DEFAULT_BASE_HEIGHT,
-                excluded_lot_crvs=None,
-            )
-            calc.compute(
-                lot_region=lot.region,
-                neighbor_lot_crvs_without_gong=other_lot_regions,
-            )
+        calc.compute(height=FLOOR_HEIGHT_M)
 
-            buildable = calc.buildable_boundary
-            allowed_area = 0.0 if buildable is None else utils.get_area(buildable)
+        lot_region_inward = calc.lot_region_inward
+        if lot_region_inward is None:
+            # 너무 작은경우 뒤의 연산도 의미 없으므로 허용면적 0으로 처리
+            lot_region_inward = None
 
             rows.append(
                 {
@@ -131,6 +132,34 @@ def _compute_allowable_rows(shp_path):
                     "landuse_code": getattr(lot, "landuse_code", ""),
                     "landuse": getattr(lot, "landuse", constants.LANDUSE_UNKNOWN),
                     "lot_area_m2": lot.area,
+                    "lot_area_inward_1m_m2": 0.0,
+                    "floor": 0,
+                    "height_m": 0.0,
+                    "allowed_area_m2": 0.0,
+                    "base_segment_count": 0,
+                }
+            )
+            continue
+
+        for floor in range(1, MAX_FLOOR + 1):
+            height_m = FLOOR_HEIGHT_M * floor
+            calc.compute(height=height_m)
+
+            buildable = calc.buildable_boundary
+            allowed_area = 0.0 if not buildable else utils.get_area(buildable)
+
+            rows.append(
+                {
+                    "pnu": lot.pnu,
+                    "jimok": lot.jimok,
+                    "landuse_code": getattr(lot, "landuse_code", ""),
+                    "landuse": getattr(lot, "landuse", constants.LANDUSE_UNKNOWN),
+                    "lot_area_m2": lot.area,
+                    "lot_area_inward_1m_m2": (
+                        0.0
+                        if lot_region_inward is None
+                        else utils.get_area(lot_region_inward)
+                    ),
                     "floor": floor,
                     "height_m": height_m,
                     "allowed_area_m2": allowed_area,
@@ -138,7 +167,9 @@ def _compute_allowable_rows(shp_path):
                 }
             )
 
-    return rows, len(lots), len(roads), len(target_lots), landuse_counter
+    if include_counter:
+        return rows, len(lots), len(roads), len(target_lots), landuse_counter
+    return rows, len(lots), len(roads), len(target_lots)
 
 
 def _save_csv(rows, shp_path):
@@ -160,6 +191,7 @@ def _save_csv(rows, shp_path):
         "landuse_code",
         "landuse",
         "lot_area_m2",
+        "lot_area_inward_1m_m2",
         "floor",
         "height_m",
         "allowed_area_m2",
@@ -182,7 +214,7 @@ if __name__ == "__main__":
 
     shp_path = _resolve_shp_path(shp_dir)
     rows, lot_count, road_count, target_count, landuse_counter = (
-        _compute_allowable_rows(shp_path)
+        _compute_allowable_rows(shp_path, include_counter=True)
     )
     output_csv_path = _save_csv(rows, shp_path)
 
