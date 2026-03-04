@@ -102,11 +102,11 @@ def _compute_allowable_rows(shp_path, include_counter=False):
     total_height = FLOOR_HEIGHT_M * MAX_FLOOR
 
     for lot in target_lots:
-        other_lot_regions = [other.region for other in lots if other is not lot]
+        other_lots = [other for other in lots if other is not lot]
 
         calc = northsky.NorthSkyCalculator(
-            lot_region=lot.region,
-            neighbor_lot_crvs_without_gong=other_lot_regions,
+            target_lot=lot,
+            neighbor_lots=other_lots,
             vec_exposure=DEFAULT_VEC_EXPOSURE,
             max_distance=total_height,
             is_center_start=DEFAULT_IS_CENTER_START,
@@ -115,7 +115,7 @@ def _compute_allowable_rows(shp_path, include_counter=False):
             base_offset=DEFAULT_BASE_OFFSET,
             base_height=DEFAULT_BASE_HEIGHT,
             parcel_inward_offset=DEFAULT_PARCEL_INWARD_OFFSET_M,
-            excluded_lot_crvs=None,
+            excluded_lots=None,
         )
 
         calc.compute(height=FLOOR_HEIGHT_M)

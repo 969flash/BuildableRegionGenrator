@@ -5,8 +5,8 @@ Inputs:
     shp_path: str : SHP 파일 경로
     pnu: str : 필지 PNU 코드
 Outputs:
-    target_lot_region: geo.Region : 선택된 PNU의 대지 영역
-    other_lot_regions: List[geo.Region] : 타 필지들의 대지 영역 리스트
+    target_lot: utils.Lot : 선택된 PNU의 대지 객체
+    other_lots: List[utils.Lot] : 타 필지들의 대지 객체 리스트
 
 1. SHP 파일에서 필지 데이터 읽기
 2. 필지 데이터를 대지(Lot)와 도로(Road)로 분류
@@ -66,5 +66,5 @@ if __name__ == "__main__":
     print("선택된 PNU의 필지 정보")
     print_lot_info(selected_lot)
 
-    target_lot_region = selected_lot.region
-    other_lot_regions = [lot.region for lot in lots if lot.pnu != selected_lot.pnu]
+    target_lot = selected_lot
+    other_lots = [lot for lot in lots if lot.pnu != selected_lot.pnu]

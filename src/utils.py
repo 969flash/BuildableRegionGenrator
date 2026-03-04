@@ -270,6 +270,7 @@ class Parcel:
         jimok: str,
         landuse_code: str,
         landuse: str,
+        apt_yn: str,
         hole_regions: List[geo.Curve],
     ):
         self.region = region  # 외부 경계 커브
@@ -280,6 +281,8 @@ class Parcel:
         self.jimok = jimok
         self.landuse_code = landuse_code
         self.landuse = landuse
+        self.apt_yn = "" if apt_yn is None else str(apt_yn).strip().upper()
+        self.is_apartment = self.apt_yn == "Y"
         self._area = None
 
     @property
@@ -344,9 +347,18 @@ class Lot(Parcel):
         jimok: str,
         landuse_code: str,
         landuse: str,
+        apt_yn: str,
         hole_regions: List[geo.Curve] = None,
     ):
-        super().__init__(curve_crv, pnu, jimok, landuse_code, landuse, hole_regions)
+        super().__init__(
+            curve_crv,
+            pnu,
+            jimok,
+            landuse_code,
+            landuse,
+            apt_yn,
+            hole_regions,
+        )
         self.is_flag_lot = False  # 자루형 토지 여부
         self.has_road_access = False  # 도로 접근 여부
 
@@ -694,11 +706,29 @@ def create_parcel_from_shape(
     if landuse_code.endswith(".0"):
         landuse_code = landuse_code[:-2]
     landuse = constants.LANDUSE_MAP.get(landuse_code, constants.LANDUSE_UNKNOWN)
+    apt_yn = get_field_value(record, fields, "APT_YN", default="N")
+    apt_yn = "" if apt_yn is None else str(apt_yn).strip().upper()
 
     if jimok == "도로":
-        parcel = Road(boundary_region, pnu, jimok, landuse_code, landuse, hole_regions)
+        parcel = Road(
+            boundary_region,
+            pnu,
+            jimok,
+            landuse_code,
+            landuse,
+            apt_yn,
+            hole_regions,
+        )
     else:
-        parcel = Lot(boundary_region, pnu, jimok, landuse_code, landuse, hole_regions)
+        parcel = Lot(
+            boundary_region,
+            pnu,
+            jimok,
+            landuse_code,
+            landuse,
+            apt_yn,
+            hole_regions,
+        )
 
     return parcel if parcel.preprocess_curve() else None
 

@@ -2,7 +2,7 @@
 """North/South sky-exposure computation (정북/정남 사선)."""
 
 try:
-    from typing import List, Optional
+    from typing import List, Optional, Any
 except ImportError:  # IronPython compatibility
     pass
 
@@ -10,7 +10,6 @@ import itertools
 import math
 
 import Rhino.Geometry as geo  # type: ignore
-import scriptcontext as sc  # type: ignore
 
 try:
     from . import utils  # type: ignore
@@ -28,6 +27,9 @@ import importlib
 importlib.reload(utils)
 
 
+RESIDENTIAL_GENERAL_CODES = {"13", "14", "15"}
+
+
 class NorthSkyCalculator(object):
     """정북사선을 고려한 기준선/건축가능영역 계산기.
 
@@ -39,8 +41,8 @@ class NorthSkyCalculator(object):
 
     def __init__(
         self,
-        lot_region,
-        neighbor_lot_crvs_without_gong,
+        target_lot,
+        neighbor_lots,
         vec_exposure,
         max_distance,
         is_center_start,
@@ -49,11 +51,23 @@ class NorthSkyCalculator(object):
         base_offset=0.0,
         base_height=0.0,
         parcel_inward_offset=0.0,
-        excluded_lot_crvs=None,
+        excluded_lots=None,
     ):
-        # type: (geo.Curve, List[geo.Curve], geo.Vector3d, float, bool, float, float, float, float, float, Optional[List[geo.Curve]]) -> None
-        self.lot_region = lot_region
-        self.neighbor_lot_crvs_without_gong = list(neighbor_lot_crvs_without_gong)
+        # type: (Any, List[Any], geo.Vector3d, float, bool, float, float, float, float, float, Optional[List[Any]]) -> None
+        self.target_lot = target_lot
+        self.neighbor_lots = list(neighbor_lots or [])
+
+        self.lot_region = (
+            target_lot.region
+            if hasattr(target_lot, "region") and target_lot.region is not None
+            else target_lot
+        )
+
+        self.neighbor_lot_crvs_without_gong = []
+        for lot in self.neighbor_lots:
+            region = lot.region if hasattr(lot, "region") else lot
+            if region:
+                self.neighbor_lot_crvs_without_gong.append(region)
 
         self.vec_exposure = geo.Vector3d(vec_exposure)
         self.max_distance = float(max_distance)
@@ -64,16 +78,23 @@ class NorthSkyCalculator(object):
         self.base_offset = float(base_offset)
         self.base_height = float(base_height)
         self.parcel_inward_offset = float(parcel_inward_offset)
-        self.excluded_lot_crvs = excluded_lot_crvs
+        self.excluded_lots = excluded_lots
+
+        self.excluded_lot_crvs = []
+        if excluded_lots:
+            for lot in excluded_lots:
+                region = lot.region if hasattr(lot, "region") else lot
+                if region:
+                    self.excluded_lot_crvs.append(region)
 
         self.base_segments = []  # type: List[geo.Curve]
         self.buildable_boundary = None  # type: Optional[geo.Curve]
         self.buildable_boundary_raw = None  # type: Optional[geo.Curve]
-        self.lot_region_inward = lot_region  # type: geo.Curve
+        self.lot_region_inward = self.lot_region  # type: geo.Curve
 
         self.base_segments = self._compute_base_segments(
             lot_region=self.lot_region,
-            neighbor_lot_crvs_without_gong=self.neighbor_lot_crvs_without_gong,
+            neighbor_lots=self.neighbor_lots,
         )
 
         if self.parcel_inward_offset > 0:
@@ -149,12 +170,6 @@ class NorthSkyCalculator(object):
         # 깔금한 지오메트리 연산을위해 인접대지를 한번에 합친다.
         intersections = utils.get_intersection_regions(
             [region], utils.get_union_regions(filtered_neighbor_lots)
-        )
-        sc.sticky["debug_intersections"] = (
-            intersections,
-            [region],
-            utils.get_union_regions(filtered_neighbor_lots),
-            filtered_neighbor_lots,
         )
 
         if not intersections:
@@ -246,8 +261,54 @@ class NorthSkyCalculator(object):
             filtered.append(seg)
         return filtered
 
-    def _compute_base_segments(self, lot_region, neighbor_lot_crvs_without_gong):
-        # type: (geo.Curve, List[geo.Curve]) -> List[geo.Curve]
+    def _normalize_landuse_code(self, value):
+        # type: (Any) -> str
+        if value is None:
+            return ""
+        text = str(value).strip()
+        if text.endswith(".0"):
+            text = text[:-2]
+        return text
+
+    def _is_general_residential_apartment(self, lot):
+        # type: (Any) -> bool
+        if lot is None:
+            return False
+        if not bool(getattr(lot, "is_apartment", False)):
+            return False
+        code = self._normalize_landuse_code(getattr(lot, "landuse_code", ""))
+        return code in RESIDENTIAL_GENERAL_CODES
+
+    def _get_owner_lot_for_seg(self, seg, candidate_lots):
+        # type: (geo.Curve, List[Any]) -> Optional[Any]
+        for lot in candidate_lots:
+            region = lot.region if hasattr(lot, "region") else lot
+            if region and utils.is_seg_on_crv(seg, region):
+                return lot
+        return None
+
+    def _is_road_centerline_case(self, seg_base, seg_exposure, owner_lot):
+        # type: (geo.Curve, geo.Curve, Optional[Any]) -> bool
+        if not self._is_general_residential_apartment(owner_lot):
+            return False
+
+        vec_back = geo.Vector3d(self.vec_exposure)
+        vec_back.Reverse()
+        pt_mid = seg_exposure.PointAtNormalizedLength(0.5)
+        pt_on_base = utils.get_pt_from_pt_to_crvs(pt_mid, vec_back, [seg_base])
+        if not pt_on_base:
+            return False
+
+        return pt_mid.DistanceTo(pt_on_base) > TOL
+
+    def _compute_base_segments(self, lot_region, neighbor_lots):
+        # type: (geo.Curve, List[Any]) -> List[geo.Curve]
+        neighbor_lot_crvs_without_gong = [
+            lot.region if hasattr(lot, "region") else lot
+            for lot in (neighbor_lots or [])
+            if (lot.region if hasattr(lot, "region") else lot)
+        ]
+
         crvs_check = list(neighbor_lot_crvs_without_gong) + [lot_region]
         target_segs = self._get_target_segs(lot_region, -self.vec_exposure)
 
@@ -269,9 +330,14 @@ class NorthSkyCalculator(object):
             if not self.is_center_start:
                 result_bases += segs_filtered
             else:
-                result_bases += self._get_centered_segs(
-                    seg_base, segs_filtered, self.vec_exposure
-                )
+                for seg in segs_filtered:
+                    owner_lot = self._get_owner_lot_for_seg(seg, neighbor_lots)
+                    if self._is_road_centerline_case(seg_base, seg, owner_lot):
+                        result_bases.append(
+                            self._get_centered_seg(seg_base, seg, self.vec_exposure)
+                        )
+                    else:
+                        result_bases.append(seg)
 
         filtered_segs = self._filter_short_segs(result_bases, self.vec_exposure)
 
