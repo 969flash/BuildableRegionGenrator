@@ -9,7 +9,6 @@ GH Inputs (권장):
 - vec_exposure: geo.Vector3d (기본: (0,1,0))
 - max_distance: float (기본: 20.0)
 - is_center_start: bool (기본: True)
-- excluded_lot_regions: Optional[List[geo.Curve]]
 
 GH Outputs (권장):
 - northsky_base_segments: List[geo.Curve]
@@ -38,7 +37,6 @@ if __name__ == "__main__":
     vec_exposure = globals().get("vec_exposure") or geo.Vector3d(0, 1, 0)
     max_distance = globals().get("max_distance", 20.0)
     is_center_start = globals().get("is_center_start", True)
-    excluded_lots = globals().get("excluded_lots")
     height = globals().get("height", 15.0)
     ratio = globals().get("ratio", 1.5)
     base_offset = globals().get("base_offset", 0.0)
@@ -63,7 +61,6 @@ if __name__ == "__main__":
         base_offset=float(base_offset),
         base_height=float(base_height),
         parcel_inward_offset=float(parcel_inward_offset),
-        excluded_lots=excluded_lots,
     )
     northsky_calculator.compute(height=float(height))
     northsky_base_segments = northsky_calculator.base_segments

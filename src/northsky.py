@@ -30,6 +30,22 @@ importlib.reload(utils)
 RESIDENTIAL_GENERAL_CODES = {"13", "14", "15"}
 
 
+def is_sunlight_regulated_landuse_code(landuse_code):
+    # type: (Any) -> bool
+    """일조권 사선 제한 대상 용도지역 코드인지 반환.
+
+    대상: 전용주거지역(11,12), 일반주거지역(13,14,15,17)
+    """
+    if landuse_code is None:
+        return False
+
+    code = str(landuse_code).strip()
+    if code.endswith(".0"):
+        code = code[:-2]
+
+    return code in {"11", "12", "13", "14", "15", "17"}
+
+
 class NorthSkyCalculator(object):
     """정북사선을 고려한 기준선/건축가능영역 계산기.
 
@@ -51,9 +67,8 @@ class NorthSkyCalculator(object):
         base_offset=0.0,
         base_height=0.0,
         parcel_inward_offset=0.0,
-        excluded_lots=None,
     ):
-        # type: (Any, List[Any], geo.Vector3d, float, bool, float, float, float, float, float, Optional[List[Any]]) -> None
+        # type: (Any, List[Any], geo.Vector3d, float, bool, float, float, float, float, float) -> None
         self.target_lot = target_lot
         self.neighbor_lots = list(neighbor_lots or [])
 
@@ -72,7 +87,6 @@ class NorthSkyCalculator(object):
         self.base_offset = float(base_offset)
         self.base_height = float(base_height)
         self.parcel_inward_offset = float(parcel_inward_offset)
-        self.excluded_lots = excluded_lots
 
         self.neighbor_lots = self._prefilter_neighbor_lots(
             lot_region=self.lot_region,
@@ -85,13 +99,6 @@ class NorthSkyCalculator(object):
             region = lot.region if hasattr(lot, "region") else lot
             if region:
                 self.neighbor_lot_crvs_without_gong.append(region)
-
-        self.excluded_lot_crvs = []
-        if excluded_lots:
-            for lot in excluded_lots:
-                region = lot.region if hasattr(lot, "region") else lot
-                if region:
-                    self.excluded_lot_crvs.append(region)
 
         self.base_segments = []  # type: List[geo.Curve]
         self.buildable_boundary = None  # type: Optional[geo.Curve]
@@ -255,10 +262,6 @@ class NorthSkyCalculator(object):
         # type: (geo.Curve, geo.Curve, List[geo.Curve]) -> List[geo.Curve]
         filtered = []
         for seg in segs:
-            if self.excluded_lot_crvs and any(
-                utils.is_seg_on_crv(seg, lot_crv) for lot_crv in self.excluded_lot_crvs
-            ):
-                continue
             if utils.is_seg_on_crv(seg, seg_base):
                 filtered.append(seg)
                 continue
@@ -379,17 +382,21 @@ class NorthSkyCalculator(object):
             if not segs_filtered:
                 continue
 
-            if not self.is_center_start:
-                result_bases += segs_filtered
-            else:
-                for seg in segs_filtered:
-                    owner_lot = self._get_owner_lot_for_seg(seg, self.neighbor_lots)
-                    if self._is_road_centerline_case(seg_base, seg, owner_lot):
-                        result_bases.append(
-                            self._get_centered_seg(seg_base, seg, self.vec_exposure)
-                        )
-                    else:
-                        result_bases.append(seg)
+            for seg in segs_filtered:
+                owner_lot = self._get_owner_lot_for_seg(seg, self.neighbor_lots)
+                if owner_lot and not is_sunlight_regulated_landuse_code(
+                    getattr(owner_lot, "landuse_code", "")
+                ):
+                    continue
+
+                if self.is_center_start and self._is_road_centerline_case(
+                    seg_base, seg, owner_lot
+                ):
+                    result_bases.append(
+                        self._get_centered_seg(seg_base, seg, self.vec_exposure)
+                    )
+                else:
+                    result_bases.append(seg)
 
         filtered_segs = self._filter_short_segs(result_bases, self.vec_exposure)
 

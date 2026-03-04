@@ -116,7 +116,6 @@ def _compute_allowable_rows(shp_path, include_counter=False):
             base_offset=DEFAULT_BASE_OFFSET,
             base_height=DEFAULT_BASE_HEIGHT,
             parcel_inward_offset=DEFAULT_PARCEL_INWARD_OFFSET_M,
-            excluded_lots=None,
         )
 
         lot_region_inward = calc.lot_region_inward
