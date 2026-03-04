@@ -15,6 +15,7 @@ import math
 TOL = 0.001
 RAW_TOL = 0.1
 ANGLE_90_DEGREE = math.pi / 2.0
+PREFILTER_DISTANCE_M = 300.0
 
 LANDUSE_MAP = {
     "0": "지정되지않음",

@@ -63,12 +63,6 @@ class NorthSkyCalculator(object):
             else target_lot
         )
 
-        self.neighbor_lot_crvs_without_gong = []
-        for lot in self.neighbor_lots:
-            region = lot.region if hasattr(lot, "region") else lot
-            if region:
-                self.neighbor_lot_crvs_without_gong.append(region)
-
         self.vec_exposure = geo.Vector3d(vec_exposure)
         self.max_distance = float(max_distance)
         self.is_center_start = bool(is_center_start)
@@ -79,6 +73,18 @@ class NorthSkyCalculator(object):
         self.base_height = float(base_height)
         self.parcel_inward_offset = float(parcel_inward_offset)
         self.excluded_lots = excluded_lots
+
+        self.neighbor_lots = self._prefilter_neighbor_lots(
+            lot_region=self.lot_region,
+            neighbor_lots=self.neighbor_lots,
+            max_distance=self.max_distance,
+        )
+
+        self.neighbor_lot_crvs_without_gong = []
+        for lot in self.neighbor_lots:
+            region = lot.region if hasattr(lot, "region") else lot
+            if region:
+                self.neighbor_lot_crvs_without_gong.append(region)
 
         self.excluded_lot_crvs = []
         if excluded_lots:
@@ -270,6 +276,52 @@ class NorthSkyCalculator(object):
             text = text[:-2]
         return text
 
+    def _get_curve_bbox(self, crv):
+        # type: (Any) -> Optional[geo.BoundingBox]
+        if not crv:
+            return None
+        try:
+            bb = crv.GetBoundingBox(True)
+        except Exception:
+            try:
+                bb = crv.GetBoundingBox(geo.Plane.WorldXY)
+            except Exception:
+                bb = None
+        if bb is None:
+            return None
+        if hasattr(bb, "IsValid") and not bb.IsValid:
+            return None
+        return bb
+
+    def is_bbox_overlapping(self, bb_a, bb_b):
+        # type: (Optional[geo.BoundingBox], Optional[geo.BoundingBox]) -> bool
+        if not bb_a or not bb_b:
+            return False
+        return not (
+            bb_a.Max.X < bb_b.Min.X
+            or bb_a.Min.X > bb_b.Max.X
+            or bb_a.Max.Y < bb_b.Min.Y
+            or bb_a.Min.Y > bb_b.Max.Y
+        )
+
+    def _prefilter_neighbor_lots(self, lot_region, neighbor_lots, max_distance):
+        # type: (geo.Curve, List[Any], float) -> List[Any]
+        bb_target = self._get_curve_bbox(lot_region)
+        if not bb_target:
+            return [lot for lot in (neighbor_lots or []) if lot is not None]
+
+        bb_query = geo.BoundingBox(bb_target.Min, bb_target.Max)
+        inflate_dist = max(float(max_distance), TOL)
+        bb_query.Inflate(inflate_dist, inflate_dist, 0.0)
+
+        filtered = []
+        for lot in neighbor_lots or []:
+            region = lot.region if hasattr(lot, "region") else lot
+            bb = self._get_curve_bbox(region)
+            if self.is_bbox_overlapping(bb_query, bb):
+                filtered.append(lot)
+        return filtered
+
     def _is_general_residential_apartment(self, lot):
         # type: (Any) -> bool
         if lot is None:
@@ -331,7 +383,7 @@ class NorthSkyCalculator(object):
                 result_bases += segs_filtered
             else:
                 for seg in segs_filtered:
-                    owner_lot = self._get_owner_lot_for_seg(seg, neighbor_lots)
+                    owner_lot = self._get_owner_lot_for_seg(seg, self.neighbor_lots)
                     if self._is_road_centerline_case(seg_base, seg, owner_lot):
                         result_bases.append(
                             self._get_centered_seg(seg_base, seg, self.vec_exposure)

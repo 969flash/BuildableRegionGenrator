@@ -21,15 +21,17 @@ from collections import Counter
 import Rhino.Geometry as geo  # type: ignore
 
 try:
-    from . import constants, northsky, utils  # type: ignore
+    from . import constants, northsky, utils, shp_to_lot  # type: ignore
 except Exception:
     import constants  # type: ignore
     import northsky  # type: ignore
     import utils  # type: ignore
+    import shp_to_lot  # type: ignore
 
 importlib.reload(constants)
 importlib.reload(utils)
 importlib.reload(northsky)
+importlib.reload(shp_to_lot)
 
 
 RESIDENTIAL_GENERAL_CODES = {"13", "14", "15"}
@@ -83,9 +85,8 @@ def _resolve_shp_path(shp_dir):
 
 def _compute_allowable_rows(shp_path, include_counter=False):
     """대상 SHP에 대해 층별 허용면적 테이블(row dict 리스트) 생성."""
-    shapes, records, fields = utils.read_shp_file(shp_path)
-    parcels = utils.get_parcels_from_shapes(shapes, records, fields)
-    lots, roads = utils.classify_parcels(parcels)
+    repo = shp_to_lot.LotRepository(shp_path)
+    lots, roads = repo.lots, repo.roads
 
     landuse_counter = Counter(
         _normalize_landuse_code(getattr(lot, "landuse_code", "")) for lot in lots
@@ -102,7 +103,7 @@ def _compute_allowable_rows(shp_path, include_counter=False):
     total_height = FLOOR_HEIGHT_M * MAX_FLOOR
 
     for lot in target_lots:
-        other_lots = [other for other in lots if other is not lot]
+        other_lots = repo.get_other_lots(lot)
 
         calc = northsky.NorthSkyCalculator(
             target_lot=lot,
@@ -118,9 +119,10 @@ def _compute_allowable_rows(shp_path, include_counter=False):
             excluded_lots=None,
         )
 
-        calc.compute(height=FLOOR_HEIGHT_M)
-
         lot_region_inward = calc.lot_region_inward
+        lot_region_inward_area = (
+            0.0 if lot_region_inward is None else utils.get_area(lot_region_inward)
+        )
         if lot_region_inward is None:
             # 너무 작은경우 뒤의 연산도 의미 없으므로 허용면적 0으로 처리
             lot_region_inward = None
@@ -132,7 +134,7 @@ def _compute_allowable_rows(shp_path, include_counter=False):
                     "landuse_code": getattr(lot, "landuse_code", ""),
                     "landuse": getattr(lot, "landuse", constants.LANDUSE_UNKNOWN),
                     "lot_area_m2": lot.area,
-                    "lot_area_inward_1m_m2": 0.0,
+                    "lot_area_inward_1m_m2": lot_region_inward_area,
                     "floor": 0,
                     "height_m": 0.0,
                     "allowed_area_m2": 0.0,
@@ -155,11 +157,7 @@ def _compute_allowable_rows(shp_path, include_counter=False):
                     "landuse_code": getattr(lot, "landuse_code", ""),
                     "landuse": getattr(lot, "landuse", constants.LANDUSE_UNKNOWN),
                     "lot_area_m2": lot.area,
-                    "lot_area_inward_1m_m2": (
-                        0.0
-                        if lot_region_inward is None
-                        else utils.get_area(lot_region_inward)
-                    ),
+                    "lot_area_inward_1m_m2": lot_region_inward_area,
                     "floor": floor,
                     "height_m": height_m,
                     "allowed_area_m2": allowed_area,

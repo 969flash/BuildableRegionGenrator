@@ -1,31 +1,25 @@
-# r: pyshp
-"""
-가로구역별 최고높이 산정을 위한 필지 필터링 스크립트
-Inputs:
-    shp_path: str : SHP 파일 경로
-    pnu: str : 필지 PNU 코드
-Outputs:
-    target_lot: utils.Lot : 선택된 PNU의 대지 객체
-    other_lots: List[utils.Lot] : 타 필지들의 대지 객체 리스트
+"""SHP -> Lot selection helpers.
 
-1. SHP 파일에서 필지 데이터 읽기
-2. 필지 데이터를 대지(Lot)와 도로(Road)로 분류
-3. 입력된 PNU에 해당하는 필지와 타 필지 출력
+`LotRepository`는 SHP를 1회 로드하고,
+- target_lot 조회
+- other_lots 조회(옵션: bbox 사전 필터)
+를 제공한다.
 """
 
-import Rhino.Geometry as geo
-import scriptcontext as sc
-import shapefile
 import os
-from typing import List, Tuple, Any, Optional
+from typing import List, Optional
+
+import Rhino.Geometry as geo  # type: ignore
 
 try:
-    from . import utils
+    from . import utils, constants
 except Exception:
     import utils
+    import constants
 import importlib
 
 importlib.reload(utils)
+importlib.reload(constants)
 
 
 def print_lot_info(lot: utils.Lot):
@@ -33,6 +27,90 @@ def print_lot_info(lot: utils.Lot):
     print(f"PNU: {lot.pnu}")
     print(f"지목: {lot.jimok}")
     print(f"면적: {lot.area:.2f} ㎡")
+
+
+class LotRepository(object):
+    def __init__(self, shp_path):
+        # type: (str) -> None
+        if not shp_path or not os.path.isfile(shp_path):
+            raise FileNotFoundError("SHP 파일을 찾을 수 없습니다: {}".format(shp_path))
+
+        self.shp_path = shp_path
+        shapes, records, fields = utils.read_shp_file(shp_path)
+        parcels = utils.get_parcels_from_shapes(shapes, records, fields)
+        self.lots, self.roads = utils.classify_parcels(parcels)
+        self._bbox_cache = {}
+
+    def get_target_lot(self, pnu):
+        # type: (str) -> Optional[utils.Lot]
+        if pnu is None:
+            return None
+        pnu_text = str(pnu)
+        return next((lot for lot in self.lots if str(lot.pnu) == pnu_text), None)
+
+    def _get_bbox(self, lot):
+        # type: (utils.Lot) -> Optional[geo.BoundingBox]
+        key = id(lot)
+        cached = self._bbox_cache.get(key)
+        if cached is not None:
+            return cached
+
+        region = getattr(lot, "region", None)
+        if not region:
+            self._bbox_cache[key] = None
+            return None
+
+        try:
+            bb = region.GetBoundingBox(True)
+        except Exception:
+            bb = None
+
+        if bb is None or (hasattr(bb, "IsValid") and not bb.IsValid):
+            self._bbox_cache[key] = None
+            return None
+
+        self._bbox_cache[key] = bb
+        return bb
+
+    def is_bbox_overlapping(self, bb_a, bb_b):
+        # type: (Optional[geo.BoundingBox], Optional[geo.BoundingBox]) -> bool
+        if not bb_a or not bb_b:
+            return False
+        return not (
+            bb_a.Max.X < bb_b.Min.X
+            or bb_a.Min.X > bb_b.Max.X
+            or bb_a.Max.Y < bb_b.Min.Y
+            or bb_a.Min.Y > bb_b.Max.Y
+        )
+
+    def get_other_lots(self, target_lot):
+        # type: (utils.Lot) -> List[utils.Lot]
+        if target_lot is None:
+            return []
+
+        others = [lot for lot in self.lots if lot is not target_lot]
+
+        bb_target = self._get_bbox(target_lot)
+        if not bb_target:
+            return others
+
+        bb_query = geo.BoundingBox(bb_target.Min, bb_target.Max)
+        dist = max(float(constants.PREFILTER_DISTANCE_M), 0.0)
+        bb_query.Inflate(dist, dist, 0.0)
+
+        return [
+            lot
+            for lot in others
+            if self.is_bbox_overlapping(bb_query, self._get_bbox(lot))
+        ]
+
+    def get_target_and_others(self, pnu):
+        # type: (str) -> tuple
+        target_lot = self.get_target_lot(pnu)
+        if target_lot is None:
+            raise ValueError("PNU '{}'에 해당하는 필지를 찾을 수 없습니다.".format(pnu))
+        other_lots = self.get_other_lots(target_lot)
+        return target_lot, other_lots
 
 
 if __name__ == "__main__":
@@ -47,24 +125,17 @@ if __name__ == "__main__":
     if not pnu:
         raise ValueError("PNU 값이 제공되지 않았습니다.")
 
-    # 1. SHP 파일에서 필지 데이터 읽기
-    # Shape, Record, Field 데이터 읽기
-    shapes, records, fields = utils.read_shp_file(shp_path)
-
-    # 2. 필지 데이터에서 lot과 road 분류
-    # 필지 데이터로부터 Parcel 객체 생성
-    parcels = utils.get_parcels_from_shapes(shapes, records, fields)
-    # 대지와 도로 분류
-    lots, roads = utils.classify_parcels(parcels)
+    repo = LotRepository(shp_path)
+    lots, roads = repo.lots, repo.roads
     # 데이터 확인
     print(f"대지: {len(lots)}개, 도로: {len(roads)}개")
 
     # 3. 입력된 PNU에 해당하는 필지 선택
-    selected_lot = next((lot for lot in lots if lot.pnu == pnu), None)
+    selected_lot = repo.get_target_lot(pnu)
     if not selected_lot:
-        raise ValueError(f"PNU '{pnu}'에 해당하는 필지를 찾을 수 없습니다.")
+        raise ValueError("PNU '{}'에 해당하는 필지를 찾을 수 없습니다.".format(pnu))
     print("선택된 PNU의 필지 정보")
     print_lot_info(selected_lot)
 
     target_lot = selected_lot
-    other_lots = [lot for lot in lots if lot.pnu != selected_lot.pnu]
+    other_lots = repo.get_other_lots(target_lot)
