@@ -5,10 +5,7 @@
 - 정북사선 등 순수 지오메트리 유틸을 쓰는 경우를 위해 `shapefile` import는 optional 입니다.
 """
 
-try:
-    import shapefile  # type: ignore
-except Exception:
-    shapefile = None  # type: ignore
+import shapefile  # type: ignore
 import os
 import functools
 from typing import List, Tuple, Any, Optional, Union
@@ -17,16 +14,14 @@ import Rhino  # type: ignore
 import Rhino.Geometry as geo
 import math
 
-try:
-    from . import constants  # type: ignore
-except Exception:
-    import constants  # type: ignore
+import constants  # type: ignore
 
 TOL = constants.TOL  # 연산 허용 오차
 RAW_TOL = constants.RAW_TOL  # 원시 데이터 허용 오차
 BIGNUM = 1000000000
 CLIPPER_TOL = TOL
 OP_TOL = TOL
+ANGLE_TOL = math.pi / 180 * TOL
 
 
 def convert_io_to_list(func):
@@ -67,50 +62,8 @@ def not_allow_list_input(func):
     return wrapper
 
 
-def _to_closed_polyline_points(crv: geo.Curve) -> Optional[List[geo.Point3d]]:
-    """Curve를 닫힌 polyline points로 변환한다."""
-    if not crv:
-        return None
-
-    pts = None
-    try:
-        if isinstance(crv, geo.PolylineCurve):
-            pts = list(crv.ToPolyline())
-    except Exception:
-        pts = None
-
-    if not pts:
-        try:
-            ok, polyline = crv.TryGetPolyline()
-            if ok and polyline:
-                pts = list(polyline)
-        except Exception:
-            pts = None
-
-    if not pts:
-        try:
-            pl_crv = crv.ToPolyline(0, 0, RAW_TOL, RAW_TOL, RAW_TOL, 0, 0, 0, True)
-            if pl_crv:
-                pts = list(pl_crv.ToPolyline())
-        except Exception:
-            pts = None
-
-    if not pts or len(pts) < 3:
-        return None
-
-    if pts[0].DistanceTo(pts[-1]) > TOL:
-        pts.append(pts[0])
-
-    return pts
-
-
 class Comp:
     """레거시 comp 인터페이스 호환 래퍼 (ghpythonlib ClipperComponents 기반)."""
-
-    class _PolylineOffsetResult:
-        def __init__(self):
-            self.contour = None  # type: Optional[List[geo.Curve]]
-            self.holes = None  # type: Optional[List[geo.Curve]]
 
     @convert_io_to_list
     def _polyline_boolean(
@@ -127,13 +80,10 @@ class Comp:
         if plane is None:
             plane = geo.Plane.WorldXY
 
-        try:
-            result = ghcomp.ClipperComponents.PolylineBoolean(
-                crvs0, crvs1, boolean_type, plane, tol
-            )
-            return _normalize_ghcomp_result(result)
-        except Exception:
-            return []
+        result = ghcomp.ClipperComponents.PolylineBoolean(
+            crvs0, crvs1, boolean_type, plane, tol
+        )
+        return _normalize_ghcomp_result(result)
 
     def polyline_boolean_intersection(
         self,
@@ -191,70 +141,6 @@ class Comp:
     def polyline_containment_outside(self, region, pt, plane=None, tol=OP_TOL):
         # type: (geo.Curve, geo.Point3d, Optional[geo.Plane], float) -> bool
         return self._polyline_containment(region, pt, plane, tol) == 0
-
-    def polyline_offset(
-        self,
-        crv: geo.Curve,
-        distance: float,
-        miter: float = BIGNUM,
-        closed_fillet: int = 2,
-        open_fillet: int = 2,
-        tol: float = Rhino.RhinoMath.ZeroTolerance,
-    ):
-        # type: (...) -> _PolylineOffsetResult
-        if not crv:
-            result = Comp._PolylineOffsetResult()
-            result.contour = []
-            result.holes = []
-            return result
-
-        pts = _to_closed_polyline_points(crv)
-        if not pts:
-            result = Comp._PolylineOffsetResult()
-            result.contour = []
-            result.holes = []
-            return result
-
-        polyline_crv = geo.PolylineCurve(pts)
-        plane = geo.Plane(
-            geo.Point3d(0, 0, polyline_crv.PointAtEnd.Z), geo.Vector3d.ZAxis
-        )
-
-        try:
-            raw = ghcomp.ClipperComponents.PolylineOffset(
-                [polyline_crv],
-                [float(distance)],
-                plane,
-                tol,
-                closed_fillet,
-                open_fillet,
-                miter,
-            )
-        except Exception:
-            raw = None
-
-        result = Comp._PolylineOffsetResult()
-        if raw is None:
-            result.contour = []
-            result.holes = []
-            return result
-
-        for name in ("contour", "holes"):
-            values = None
-            try:
-                values = raw[name]
-            except Exception:
-                values = getattr(raw, name, None)
-
-            if values is None:
-                values = []
-            elif not isinstance(values, list):
-                values = [values]
-
-            values = [c for c in values if c and c.IsClosed]
-            setattr(result, name, values)
-
-        return result
 
 
 comp = Comp()
@@ -365,17 +251,7 @@ class Lot(Parcel):
 
 def read_shp_file(file_path: str) -> Tuple[List[Any], List[Any], List[str]]:
     """shapefile을 읽어서 shapes와 records를 반환"""
-    if shapefile is None:
-        raise ImportError(
-            "pyshp(shapefile) is required for read_shp_file(). Install it in your Rhino CPython environment."
-        )
-    try:
-        sf = shapefile.Reader(file_path, encoding="utf-8")
-    except:
-        try:
-            sf = shapefile.Reader(file_path, encoding="cp949")
-        except:
-            sf = shapefile.Reader(file_path)
+    sf = shapefile.Reader(file_path, encoding="utf-8")
 
     shapes = sf.shapes()
     records = sf.records()
@@ -452,21 +328,15 @@ def explode(crv: geo.Curve) -> List[geo.Curve]:
         return [geo.LineCurve(pts[i], pts[i + 1]) for i in range(len(pts) - 1)]
 
     # PolyCurve 등: DuplicateSegments를 먼저 시도
-    try:
-        segs = list(crv.DuplicateSegments())
-        segs = [s for s in segs if s and s.IsValid and s.GetLength() > TOL]
-        if segs:
-            return segs
-    except Exception:
-        pass
+    segs = list(crv.DuplicateSegments())
+    segs = [s for s in segs if s and s.IsValid and s.GetLength() > TOL]
+    if segs:
+        return segs
 
     # fallback: polyline 근사
-    try:
-        pl_crv = crv.ToPolyline(0, 0, RAW_TOL, RAW_TOL, RAW_TOL, 0, 0, 0, True)
-        if pl_crv:
-            return explode(pl_crv)
-    except Exception:
-        pass
+    pl_crv = crv.ToPolyline(0, 0, RAW_TOL, RAW_TOL, RAW_TOL, 0, 0, 0, True)
+    if pl_crv:
+        return explode(pl_crv)
 
     return [crv]
 
@@ -490,12 +360,9 @@ def get_inside_perp_vec(
     eps = max(tol * 10.0, 0.01)
     plane = geo.Plane.WorldXY
 
-    try:
-        inside = boundary.Contains(mid + perp * eps, plane, tol)
-        if inside != geo.PointContainment.Outside:
-            return perp
-    except Exception:
-        pass
+    inside = boundary.Contains(mid + perp * eps, plane, tol)
+    if inside != geo.PointContainment.Outside:
+        return perp
 
     return -perp
 
@@ -547,12 +414,9 @@ class _SquareDomain(object):
 
 
 def _plane_uv(plane: geo.Plane, pt: geo.Point3d) -> Tuple[float, float]:
-    try:
-        rc, u, v = plane.ClosestParameter(pt)
-        if rc:
-            return float(u), float(v)
-    except Exception:
-        pass
+    rc, u, v = plane.ClosestParameter(pt)
+    if rc:
+        return float(u), float(v)
     # fallback: manually project using axes
     op = pt - plane.Origin
     return float(op * plane.XAxis), float(op * plane.YAxis)
@@ -683,11 +547,8 @@ def get_field_value(
     record: List[Any], fields: List[str], field_name: str, default: str = "Unknown"
 ) -> str:
     """레코드에서 특정 필드값을 안전하게 추출"""
-    try:
-        index = fields.index(field_name)
-        return record[index]
-    except (ValueError, IndexError):
-        return default
+    index = fields.index(field_name)
+    return record[index]
 
 
 def create_parcel_from_shape(
@@ -751,26 +612,17 @@ def has_region_intersection(
         return False
 
     plane = geo.Plane.WorldXY
-    try:
-        if geo.Curve.PlanarCurveCollision(region_a, region_b, plane, tol):
-            return True
-    except Exception:
-        pass
+    if geo.Curve.PlanarCurveCollision(region_a, region_b, plane, tol):
+        return True
 
     # collision이 false여도 포함 관계일 수 있으니 샘플 점으로 검사
-    try:
-        pt_b = region_b.PointAtNormalizedLength(0.5)
-        if region_a.Contains(pt_b, plane, tol) != geo.PointContainment.Outside:
-            return True
-    except Exception:
-        pass
+    pt_b = region_b.PointAtNormalizedLength(0.5)
+    if region_a.Contains(pt_b, plane, tol) != geo.PointContainment.Outside:
+        return True
 
-    try:
-        pt_a = region_a.PointAtNormalizedLength(0.5)
-        if region_b.Contains(pt_a, plane, tol) != geo.PointContainment.Outside:
-            return True
-    except Exception:
-        pass
+    pt_a = region_a.PointAtNormalizedLength(0.5)
+    if region_b.Contains(pt_a, plane, tol) != geo.PointContainment.Outside:
+        return True
 
     return False
 
@@ -782,48 +634,6 @@ def move_crv(crv_to_move: geo.Curve, vec: geo.Vector3d) -> geo.Curve:
     crv_moved = crv_to_move.DuplicateCurve()
     crv_moved.Translate(vec)
     return crv_moved
-
-
-def offset_region_inward(region: geo.Curve, dist: float) -> Optional[geo.Curve]:
-    """닫힌 영역 커브를 내부로 offset 해서 단일 커브를 반환한다.
-
-    - 실패 시 None 반환
-    - 면적 기반 필터/선택 없이, 유효한 닫힌 커브를 즉시 반환
-    """
-    if not region:
-        return None
-    if not dist:
-        return region
-    if not region.IsClosed:
-        return None
-
-    result = comp.polyline_offset(region, abs(float(dist)))
-    holes = result.holes if result else None
-    if holes:
-        return holes[0]
-
-    return None
-
-
-def offset_region_outward(region: geo.Curve, dist: float) -> Optional[geo.Curve]:
-    """닫힌 영역 커브를 외부로 offset 해서 단일 커브를 반환한다.
-
-    - 실패 시 None 반환
-    - contour 결과를 반환
-    """
-    if not region:
-        return None
-    if not dist:
-        return region
-    if not region.IsClosed:
-        return None
-
-    result = comp.polyline_offset(region, abs(float(dist)))
-    contour = result.contour if result else None
-    if contour:
-        return contour[0]
-
-    return None
 
 
 def get_joined_crv(crvs: List[geo.Curve], tol: float = TOL) -> Optional[geo.Curve]:
@@ -863,15 +673,7 @@ def _curve_boolean_difference(
     if not subject or not cutter:
         return [subject] if subject else []
 
-    try:
-        diff = geo.Curve.CreateBooleanDifference(subject, cutter, tol)
-    except TypeError:
-        try:
-            diff = geo.Curve.CreateBooleanDifference(subject, cutter)
-        except Exception:
-            diff = None
-    except Exception:
-        diff = None
+    diff = geo.Curve.CreateBooleanDifference(subject, cutter, tol)
 
     if diff:
         return [d for d in diff if d and d.IsValid]
@@ -918,10 +720,7 @@ def get_difference_regions(
     area_tol = max(tol * tol, 1e-8)
     filtered = []
     for region in result:
-        try:
-            area = geo.AreaMassProperties.Compute(region).Area
-        except Exception:
-            area = 0.0
+        area = geo.AreaMassProperties.Compute(region).Area
         if area > area_tol:
             filtered.append(region)
     return filtered
@@ -970,20 +769,22 @@ def get_union_regions(crvs: List[geo.Curve]) -> List[geo.Curve]:
     if not valid:
         return []
 
-    try:
-        unioned = [valid[0]]
-        for crv in valid[1:]:
-            merged = comp.polyline_boolean_union(unioned, [crv], tol=CLIPPER_TOL)
-            unioned = merged if merged else unioned
-        return [c for c in unioned if c]
-    except Exception:
-        pass
+    result_list = list(geo.Curve.CreateBooleanUnion(valid, TOL))
+    if result_list:
+        return simplify_crvs_by_reducing_segs(result_list)
 
-    try:
-        return _normalize_ghcomp_result(ghcomp.RegionUnion(crvs))
-    except Exception:
-        # 실패 시 원본 반환(최소한의 동작 보장)
-        return valid
+    unioned = [valid[0]]
+    for crv in valid[1:]:
+        merged = comp.polyline_boolean_union(unioned, [crv], tol=CLIPPER_TOL)
+        if merged:
+            unioned = merged
+        else:
+            unioned.append(crv)
+    if unioned:
+        return simplify_crvs_by_reducing_segs([c for c in unioned if c])
+
+    result_region_union = _normalize_ghcomp_result(ghcomp.RegionUnion(valid))
+    return simplify_crvs_by_reducing_segs(result_region_union)
 
 
 def get_intersection_regions(
@@ -993,27 +794,87 @@ def get_intersection_regions(
     if not regions_a or not regions_b:
         return []
 
-    try:
-        clipped = comp.polyline_boolean_intersection(
-            regions_a, regions_b, tol=CLIPPER_TOL
-        )
-        if clipped:
-            return [c for c in clipped if c]
-    except Exception:
-        pass
+    valid_a = [c for c in regions_a if c]
+    valid_b = [c for c in regions_b if c]
+    if not valid_a or not valid_b:
+        return []
 
-    try:
-        return _normalize_ghcomp_result(ghcomp.RegionIntersection(regions_a, regions_b))
-    except Exception:
-        # fallback: pairwise intersection
-        out = []
-        for a in regions_a:
-            for b in regions_b:
-                try:
-                    out += _normalize_ghcomp_result(ghcomp.RegionIntersection([a], [b]))
-                except Exception:
-                    pass
-        return out
+    clipped = comp.polyline_boolean_intersection(valid_a, valid_b, tol=CLIPPER_TOL)
+    clipped = [c for c in clipped if c]
+    if clipped:
+        return simplify_crvs_by_reducing_segs(clipped)
+
+    clipped_relaxed = comp.polyline_boolean_intersection(valid_a, valid_b, tol=RAW_TOL)
+    clipped_relaxed = [c for c in clipped_relaxed if c]
+    if clipped_relaxed:
+        return simplify_crvs_by_reducing_segs(clipped_relaxed)
+
+    region_intersection = _normalize_ghcomp_result(
+        ghcomp.RegionIntersection(valid_a, valid_b)
+    )
+    region_intersection = [c for c in region_intersection if c]
+    if region_intersection:
+        return simplify_crvs_by_reducing_segs(region_intersection)
+
+    rhino_results = []
+    for crv_a in valid_a:
+        for crv_b in valid_b:
+            intersection = geo.Curve.CreateBooleanIntersection(crv_a, crv_b, TOL)
+            if intersection:
+                rhino_results.extend([c for c in intersection if c])
+
+    if rhino_results:
+        return simplify_crvs_by_reducing_segs(rhino_results)
+
+    return []
+
+
+def simplify_crvs_by_reducing_segs(crvs, tol=TOL, angle_tol=ANGLE_TOL):
+    # type: (List[geo.Curve], float, float) -> List[geo.Curve]
+    """simplify_crv_by_reducing_segs 여러번 호출"""
+
+    return [simplify_crv_by_reducing_segs(crv, tol, angle_tol) for crv in crvs]
+
+
+def simplify_crv_by_reducing_segs(crv, tol=TOL, angle_tol=ANGLE_TOL):
+    # type: (geo.Curve, float, float) -> geo.Curve
+    """ReduceSegments의 tol 기준, MergeColinearSegments의 angel_tol기준으로 정리하여 세그먼트를 줄인다"""
+
+    # polyline을 만들 crv의 vertices를 추출한다
+    pts_to_make_polyline = get_vertices(crv)
+    if crv.IsClosed:
+        pts_to_make_polyline.append(pts_to_make_polyline[0])
+
+    # simplify 시킨다
+    polyline_to_simplify = geo.Polyline(pts_to_make_polyline)
+    polyline_to_simplify.MergeColinearSegments(angle_tol, True)
+    # ReduceSegments에 사용된 알고리즘의 한계로 닫힌 커브의 경우 닫히는 점(시작점과 끝점)은 정리가 안될 수 있다. 주의!
+    polyline_to_simplify.ReduceSegments(tol)
+    if polyline_to_simplify.IsClosed and polyline_to_simplify.Count > 3:
+        # 첫 점(마지막 점과 동일)에 대해서는 ReduceSegments 동작하지 않는 문제 대응
+        # 첫 점과 양옆의 이웃하는 점들 가지고 단순화 알고리즘 적용
+        pt_items = [polyline_to_simplify[i] for i in range(polyline_to_simplify.Count)]
+        pt_first = pt_items[0]
+        pt1 = pt_items[1]
+        pt2 = pt_items[polyline_to_simplify.Count - 2]
+        if geo.Line(pt1, pt2).DistanceTo(pt_first, True) <= tol:
+            # 시작점과 마지막 점을 지우고 끝점을 이어준다.
+            polyline_to_simplify.RemoveAt(0)
+            polyline_to_simplify.RemoveAt(polyline_to_simplify.Count - 1)
+            polyline_to_simplify.Add(polyline_to_simplify.First)
+
+    # 커브의 변형이 없으면 원래 커브를 리턴해준다.
+    if polyline_to_simplify.Count == len(pts_to_make_polyline):
+        return crv
+
+    polycrv_simplified = polyline_to_simplify.ToPolylineCurve()
+
+    if not polycrv_simplified.IsValid:
+        # 오차 이내의 커브일 경우 원치않는 결과를 만들 수 있다. 너무 작은 경우 단순화 하지 않음
+        # GeoInput("1130510300101940011", [“R1"]),
+        return crv
+
+    return polycrv_simplified
 
 
 def split_crv_from_pts(
@@ -1030,12 +891,9 @@ def split_crv_from_pts(
 
     params = []
     for pt in pts:
-        try:
-            rc, t = crv.ClosestPoint(pt, split_tol)
-            if rc:
-                params.append(t)
-        except Exception:
-            pass
+        rc, t = crv.ClosestPoint(pt, split_tol)
+        if rc:
+            params.append(t)
 
     if not params:
         return [crv]
@@ -1047,13 +905,10 @@ def split_crv_from_pts(
         if not uniq or abs(t - uniq[-1]) > 1e-9:
             uniq.append(t)
 
-    try:
-        pieces = crv.Split(uniq)
-        if not pieces:
-            return [crv]
-        return [p for p in pieces if p and p.IsValid and p.GetLength() > split_tol]
-    except Exception:
+    pieces = crv.Split(uniq)
+    if not pieces:
         return [crv]
+    return [p for p in pieces if p and p.IsValid and p.GetLength() > split_tol]
 
 
 def subtract_interval(
@@ -1095,59 +950,126 @@ def get_joined_crvs(
     """커브들을 Join한 결과를 리스트로 반환합니다."""
     if not crvs:
         return []
-    try:
-        inputs = [c for c in crvs if c]
-        if preserve_direction:
-            joined = geo.Curve.JoinCurves(inputs, tol, True)
-        else:
-            joined = geo.Curve.JoinCurves(inputs, tol)
-        return [c for c in joined if c]
-    except Exception:
-        return [c for c in crvs if c]
+    inputs = [c for c in crvs if c]
+    if preserve_direction:
+        joined = geo.Curve.JoinCurves(inputs, tol, True)
+    else:
+        joined = geo.Curve.JoinCurves(inputs, tol)
+    return [c for c in joined if c]
+
+
+def get_intersection_params_from_crv_crv(crv_a, crv_b, tol=TOL):
+    # type: (geo.Curve, geo.Curve, float) -> List[float]
+    """두 커브가 intersection 되어있는 곳을 파라미터로 얻는다
+
+    Args:
+        crv_a: intersection할 커브
+        crv_b: intersection할 커브
+        tol: tolerance 값
+
+    Returns:
+        교차파라미터들 (crv_a 기준)
+    """
+
+    def get_unsafe_intersection_results(crv_a, crv_b, tol=TOL):
+        # type: (geo.Curve, geo.Curve, float) -> Tuple[List[float], List[geo.Interval]]
+        """crv_a과 crv_b의 교차점 및 겹친 구간을 얻는다"""
+        intersect_params, overlap_intervals = [], []
+        intersection_events = geo.Intersect.Intersection.CurveCurve(
+            crv_a, crv_b, tol, tol
+        )
+        for event in intersection_events:
+            if event.IsPoint:
+                intersect_params.append(event.ParameterA)
+            if event.IsOverlap:
+                overlap_intervals.append(event.OverlapA)
+        return intersect_params, overlap_intervals
+
+    params, overlap_intervals = get_unsafe_intersection_results(crv_a, crv_b, tol)
+    for interval in overlap_intervals:
+        params += [interval.T0, interval.T1]
+
+    return params
+
+
+def get_intersection_pts_from_crv_crv(crv_a, crv_b, tol=TOL, cull_duplicates=True):
+    # type: (geo.Curve, geo.Curve, float, bool) -> List[geo.Point3d]
+    """두 커브가 intersection 되어있는 곳을 점으로 얻는다
+    오버랩이 발생하면, 오버랩 구간의 시작과 끝점이 나온다.
+
+    Args:
+        crv_a: intersection할 커브 a
+        crv_b: intersection할 커브 b
+        tol: tolerance 값
+
+    Returns:
+        교차점들
+    """
+    params = get_intersection_params_from_crv_crv(crv_a, crv_b, tol)
+    if not params:
+        return []
+
+    pts = [crv_a.PointAt(param) for param in params]
+    if cull_duplicates:
+        pts = list(geo.Point3d.CullDuplicates(pts, tol))
+
+    return pts
+
+
+def get_pts_from_pt_to_crvs(base_pt, vec, crvs, tol=OP_TOL, skip_base=True):
+    # type: (geo.Point3d, geo.Vector3d, List[geo.Curve], float, bool) -> List[geo.Point3d]
+    """base_pt에서 vec 방향으로 직선을 연장했을 때 crvs와 교차되는 모든 점들 구하기
+
+    Args:
+        base_pt : 기준점
+        vec : 연장 방향
+        crvs : 대상 커브들
+        tol : 허용오차
+
+    Returns:
+        교차점들
+    """
+
+    if not isinstance(crvs, list):
+        crvs = [crvs]
+    vec = geo.Vector3d(vec)
+    vec.Unitize()
+    line_crv = geo.LineCurve(base_pt, base_pt + vec * BIGNUM)
+    inter_pts = []
+    for crv in crvs:
+        inter_pts += get_intersection_pts_from_crv_crv(crv, line_crv, tol, False)
+
+    # base_pt와 같은 점은 스킵. base_pt가 crvs위에 있는 경우.
+    if skip_base:
+        inter_pts = list(
+            filter(lambda pt: not base_pt.EpsilonEquals(pt, tol), inter_pts)
+        )
+
+    return inter_pts
 
 
 def get_pt_from_pt_to_crvs(
-    pt: geo.Point3d, vec: geo.Vector3d, crvs: List[geo.Curve], tol: float = TOL
+    base_pt, vec, crvs, tol=OP_TOL, index_offset=0, skip_base=True
 ) -> Optional[geo.Point3d]:
     """pt에서 vec 방향으로 ray를 쏴서 crvs와의 가장 가까운 교차점을 반환합니다."""
-    if not crvs:
+
+    inter_pts = get_pts_from_pt_to_crvs(base_pt, vec, crvs, tol, skip_base)
+    if not inter_pts:
         return None
 
-    v = geo.Vector3d(vec)
-    v.Z = 0
-    if v.Length < 1e-9:
+    # 가장 가까운점 리턴해야 하는 경우
+    if index_offset == 0:
+        if len(inter_pts) == 1:
+            return inter_pts[0]
+        return min(inter_pts, key=base_pt.DistanceToSquared)
+
+    # index_offset에 맞게 리턴해야 하는 경우. 없으면 리턴 None
+    inter_pts = list(geo.Point3d.CullDuplicates(inter_pts, tol))
+    if len(inter_pts) <= index_offset:
         return None
-    v.Unitize()
 
-    far = 100000.0
-    line = geo.Line(pt, pt + v * far)
-
-    best_pt = None
-    best_dist = None
-    for crv in crvs:
-        if not crv:
-            continue
-        try:
-            events = geo.Intersect.Intersection.LineCurve(line, crv, tol, tol)
-        except Exception:
-            events = None
-        if not events:
-            continue
-
-        for ev in events:
-            p = getattr(ev, "PointA", None) or getattr(ev, "PointB", None)
-            if p is None:
-                continue
-
-            dvec = p - pt
-            if (dvec * v) <= tol:
-                continue
-            dist = dvec.Length
-            if best_dist is None or dist < best_dist:
-                best_dist = dist
-                best_pt = p
-
-    return best_pt
+    inter_pts.sort(key=base_pt.DistanceToSquared)
+    return inter_pts[index_offset]
 
 
 def get_parcels_from_shapes(
@@ -1268,3 +1190,136 @@ def get_straight_skeleton(region_curve):
 
 # 실행 예시
 # skeleton = get_straight_skeleton(input_region)
+
+
+class Offset:
+    class _PolylineOffsetResult:
+        def __init__(self):
+            self.contour: Optional[List[geo.Curve]] = None
+            self.holes: Optional[List[geo.Curve]] = None
+
+    @convert_io_to_list
+    def polyline_offset(
+        self,
+        crvs: List[geo.Curve],
+        dist: float,
+        miter: int = BIGNUM,
+        closed_fillet: int = 2,
+        open_fillet: int = 2,
+        tol: float = TOL,
+    ) -> _PolylineOffsetResult:
+        """
+        Args:
+            crv (_type_): _description_
+            dist (float): offset할 거리
+            miter : miter
+            closed_fillet : 0 = round, 1 = square, 2 = miter
+            open_fillet : 0 = round, 1 = square, 2 = butt
+
+        Returns:
+            _type_: _PolylineOffsetResult
+        """
+        if not crvs:
+            raise ValueError("No Curves to offset")
+        print(f"Offsetting {crvs} curves with distances {dist} and miter {miter}")
+        print([crv.IsClosed for crv in crvs])
+        print([crv.IsValid for crv in crvs])
+        print(get_area(crvs))
+        plane = geo.Plane(geo.Point3d(0, 0, crvs[0].PointAtEnd.Z), geo.Vector3d.ZAxis)
+        result = ghcomp.ClipperComponents.PolylineOffset(
+            crvs,
+            [float(dist)],
+            plane,
+            tol,
+            closed_fillet,
+            open_fillet,
+            miter,
+        )
+        print(f"Offset result: {result}")
+
+        polyline_offset_result = Offset._PolylineOffsetResult()
+        for name in ("contour", "holes"):
+            setattr(polyline_offset_result, name, result[name])
+        return polyline_offset_result
+
+
+def offset_region_inward(region: geo.Curve, dist: float) -> Optional[geo.Curve]:
+    """영역 커브를 안쪽으로 offset 한다.
+    Args:
+        region: offset할 대상 커브
+        dist: offset할 거리
+
+    Returns:
+        offset 후 커브
+    """
+
+    if not region:
+        return None
+    if not dist:
+        return region
+    if not region.IsClosed:
+        return None
+
+    source_area = get_area(region)
+    if source_area <= TOL:
+        return None
+
+    candidates = []
+    plane = geo.Plane.WorldXY
+    for signed_dist in (-abs(float(dist)), abs(float(dist))):
+        offset_curves = region.Offset(
+            plane,
+            signed_dist,
+            TOL,
+            geo.CurveOffsetCornerStyle.Sharp,
+        )
+        if not offset_curves:
+            continue
+        for crv in offset_curves:
+            if not crv or not crv.IsValid or not crv.IsClosed:
+                continue
+            area = get_area(crv)
+            if area < source_area - TOL and area > TOL:
+                candidates.append(crv)
+
+    if not candidates:
+        return None
+
+    return max(candidates, key=get_area)
+
+
+def offset_regions_outward(
+    regions: Union[geo.Curve, List[geo.Curve]], dist: float, miter: int = BIGNUM
+) -> List[geo.Curve]:
+    """영역 커브를 바깥쪽으로 offset 한다.
+    단일커브나 커브리스트 관계없이 커브 리스트로 리턴한다.
+    Args:
+        region: offset할 대상 커브
+        dist: offset할 거리
+    returns:
+        offset 후 커브
+    """
+    if isinstance(regions, geo.Curve):
+        regions = [regions]
+
+    return [offset_region_outward(region, dist, miter) for region in regions]
+
+
+def offset_region_outward(
+    region: geo.Curve, dist: float, miter: float = BIGNUM
+) -> geo.Curve:
+    """영역 커브를 바깥쪽으로 offset 한다.
+    단일 커브를 받아서 단일 커브로 리턴한다.
+    Args:
+        region: offset할 대상 커브
+        dist: offset할 거리
+
+    Returns:
+        offset 후 커브
+    """
+
+    if not dist:
+        return region
+    if not isinstance(region, geo.Curve):
+        raise ValueError("region must be curve")
+    return Offset().polyline_offset(region, dist, miter).contour[0]

@@ -27,6 +27,7 @@ def print_lot_info(lot: utils.Lot):
     print(f"PNU: {lot.pnu}")
     print(f"지목: {lot.jimok}")
     print(f"면적: {lot.area:.2f} ㎡")
+    print(f"용도: {lot.landuse}")
 
 
 class LotRepository(object):

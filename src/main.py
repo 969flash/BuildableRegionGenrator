@@ -31,6 +31,8 @@ importlib.reload(northsky)
 
 if __name__ == "__main__":
     # GH에서 스크립트로 실행될 때: globals() 입력을 읽어서 outputs 변수에 채워준다.
+    debug = bool(globals().get("debug", True))
+
     target_lot = globals().get("target_lot")
     other_lots = globals().get("other_lots")
 
@@ -39,9 +41,20 @@ if __name__ == "__main__":
     is_center_start = globals().get("is_center_start", True)
     height = globals().get("height", 15.0)
     ratio = globals().get("ratio", 1.5)
-    base_offset = globals().get("base_offset", 0.0)
-    base_height = globals().get("base_height", 12.0)
-    parcel_inward_offset = globals().get("parcel_inward_offset", 1.0)
+
+    if debug:
+        target_pnu = ""
+        if target_lot is not None:
+            target_pnu = str(getattr(target_lot, "pnu", ""))
+        other_count = 0 if other_lots is None else len(other_lots)
+        print("[main] target_lot is None: {}".format(target_lot is None))
+        print("[main] target_lot.pnu: {}".format(target_pnu))
+        print("[main] other_lots count: {}".format(other_count))
+        print(
+            "[main] inputs: height={}, ratio={}, max_distance={}".format(
+                height, ratio, max_distance
+            )
+        )
 
     if target_lot is None or other_lots is None:
         raise ValueError("target_lot and other_lots are required inputs.")
@@ -58,11 +71,19 @@ if __name__ == "__main__":
         is_center_start=bool(is_center_start),
         height=float(height),
         ratio=float(ratio),
-        base_offset=float(base_offset),
-        base_height=float(base_height),
-        parcel_inward_offset=float(parcel_inward_offset),
     )
     northsky_calculator.compute(height=float(height))
     northsky_base_segments = northsky_calculator.base_segments
     northsky_buildable_boundary = northsky_calculator.buildable_boundary
     offset_lot_region = northsky_calculator.lot_region_inward
+
+    if debug:
+        print(
+            "[main] base_segments count: {}".format(len(northsky_base_segments or []))
+        )
+        print(
+            "[main] buildable_boundary is None: {}".format(
+                northsky_buildable_boundary is None
+            )
+        )
+        print("[main] offset_lot_region is None: {}".format(offset_lot_region is None))
