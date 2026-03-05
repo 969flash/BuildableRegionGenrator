@@ -38,16 +38,6 @@ FLOOR_HEIGHT_M = 3.0
 MAX_FLOOR = 7
 
 
-def _normalize_landuse_code(value):
-    """용도지역 코드를 비교 가능한 문자열로 정규화한다."""
-    if value is None:
-        return ""
-    text = str(value).strip()
-    if text.endswith(".0"):
-        text = text[:-2]
-    return text
-
-
 def _resolve_shp_path(shp_dir):
     """입력 디렉토리(또는 shp 파일 경로)에서 대상 shp 파일 1개를 결정한다."""
     if not shp_dir:
@@ -81,13 +71,13 @@ def _compute_allowable_rows(shp_path, include_counter=False):
     lots, roads = repo.lots, repo.roads
 
     landuse_counter = Counter(
-        _normalize_landuse_code(getattr(lot, "landuse_code", "")) for lot in lots
+        utils.normalize_landuse_code(getattr(lot, "landuse_code", "")) for lot in lots
     )
 
     target_lots = [
         lot
         for lot in lots
-        if _normalize_landuse_code(getattr(lot, "landuse_code", ""))
+        if utils.normalize_landuse_code(getattr(lot, "landuse_code", ""))
         in constants.RESIDENTIAL_GENERAL_CODES
     ]
 

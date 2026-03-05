@@ -638,6 +638,30 @@ def has_region_intersection(
     return False
 
 
+def normalize_landuse_code(value):
+    # type: (Any) -> str
+    """용도지역 코드를 비교 가능한 문자열 형태로 정규화한다."""
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if text.endswith(".0"):
+        text = text[:-2]
+    return text
+
+
+def is_bbox_overlapping(bb_a, bb_b):
+    # type: (Optional[geo.BoundingBox], Optional[geo.BoundingBox]) -> bool
+    """두 bbox가 XY 기준으로 겹치는지 판별한다."""
+    if not bb_a or not bb_b:
+        return False
+    return not (
+        bb_a.Max.X < bb_b.Min.X
+        or bb_a.Min.X > bb_b.Max.X
+        or bb_a.Max.Y < bb_b.Min.Y
+        or bb_a.Min.Y > bb_b.Max.Y
+    )
+
+
 def move_crv(crv_to_move, vec):
     # type: (geo.Curve, geo.Vector3d) -> geo.Curve
     """단일라인 crv를 vec 만큼 이동시킨다."""

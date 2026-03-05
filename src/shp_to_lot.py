@@ -77,18 +77,6 @@ class LotRepository(object):
         self._bbox_cache[key] = bb
         return bb
 
-    def is_bbox_overlapping(self, bb_a, bb_b):
-        # type: (Optional[geo.BoundingBox], Optional[geo.BoundingBox]) -> bool
-        """두 bbox가 XY 기준으로 겹치는지 판별한다."""
-        if not bb_a or not bb_b:
-            return False
-        return not (
-            bb_a.Max.X < bb_b.Min.X
-            or bb_a.Min.X > bb_b.Max.X
-            or bb_a.Max.Y < bb_b.Min.Y
-            or bb_a.Min.Y > bb_b.Max.Y
-        )
-
     def get_other_lots(self, target_lot):
         # type: (utils.Lot) -> List[utils.Lot]
         """대상 lot를 제외한 주변 lot 목록을 반환한다."""
@@ -108,7 +96,7 @@ class LotRepository(object):
         return [
             lot
             for lot in others
-            if self.is_bbox_overlapping(bb_query, self._get_bbox(lot))
+            if utils.is_bbox_overlapping(bb_query, self._get_bbox(lot))
         ]
 
     def get_target_and_others(self, pnu):

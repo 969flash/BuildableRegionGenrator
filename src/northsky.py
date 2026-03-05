@@ -34,12 +34,9 @@ def is_sunlight_regulated_landuse_code(landuse_code):
 
     대상: 전용주거지역(11,12), 일반주거지역(13,14,15,17)
     """
-    if landuse_code is None:
+    code = utils.normalize_landuse_code(landuse_code)
+    if not code:
         return False
-
-    code = str(landuse_code).strip()
-    if code.endswith(".0"):
-        code = code[:-2]
 
     return code in {"11", "12", "13", "14", "15", "17"}
 
@@ -394,16 +391,6 @@ class NorthSkyCalculator(object):
             filtered.append(seg)
         return filtered
 
-    def _normalize_landuse_code(self, value):
-        # type: (Any) -> str
-        """용도지역 코드를 비교 가능한 문자열 형태로 정규화한다."""
-        if value is None:
-            return ""
-        text = str(value).strip()
-        if text.endswith(".0"):
-            text = text[:-2]
-        return text
-
     def _get_curve_bbox(self, crv):
         # type: (Any) -> Optional[geo.BoundingBox]
         """커브의 유효한 bounding box를 반환한다."""
@@ -422,18 +409,6 @@ class NorthSkyCalculator(object):
             return None
         return bb
 
-    def is_bbox_overlapping(self, bb_a, bb_b):
-        # type: (Optional[geo.BoundingBox], Optional[geo.BoundingBox]) -> bool
-        """두 bounding box가 XY 평면에서 겹치는지 판별한다."""
-        if not bb_a or not bb_b:
-            return False
-        return not (
-            bb_a.Max.X < bb_b.Min.X
-            or bb_a.Min.X > bb_b.Max.X
-            or bb_a.Max.Y < bb_b.Min.Y
-            or bb_a.Min.Y > bb_b.Max.Y
-        )
-
     def _prefilter_neighbor_lots(self, lot_region, neighbor_lots, max_distance):
         # type: (geo.Curve, List[Any], float) -> List[Any]
         """bbox 기반 거리 조건으로 이웃 필지를 사전 필터링한다."""
@@ -449,7 +424,7 @@ class NorthSkyCalculator(object):
         for lot in neighbor_lots or []:
             region = lot.region
             bb = self._get_curve_bbox(region)
-            if self.is_bbox_overlapping(bb_query, bb):
+            if utils.is_bbox_overlapping(bb_query, bb):
                 filtered.append(lot)
         return filtered
 
@@ -460,7 +435,7 @@ class NorthSkyCalculator(object):
             return False
         if not bool(getattr(lot, "is_apartment", False)):
             return False
-        code = self._normalize_landuse_code(getattr(lot, "landuse_code", ""))
+        code = utils.normalize_landuse_code(getattr(lot, "landuse_code", ""))
         return code in constants.RESIDENTIAL_GENERAL_CODES
 
     def _get_owner_lot_for_seg(self, seg, candidate_lots):
