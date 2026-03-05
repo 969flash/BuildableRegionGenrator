@@ -146,15 +146,9 @@ class NorthSkyCalculator(object):
             height=self.height,
             setback_type=calc_type,
         )
-        print(
-            "[compute] buildable_boundary_raw: {}".format(self.buildable_boundary_raw)
-        )
 
         if not self.buildable_boundary_raw or not self.lot_region_inward:
             self.buildable_boundary = None
-            print(
-                "[compute] buildable_boundary: None (due to missing buildable_boundary_raw or lot_region_inward)"
-            )
             return
 
         intersections = utils.get_intersection_regions(
@@ -163,8 +157,6 @@ class NorthSkyCalculator(object):
         self.buildable_boundary = (
             max(intersections, key=utils.get_area) if intersections else None
         )
-
-        print("[compute] buildable_boundary: {}".format(self.buildable_boundary))
 
     def get_cutter_breps(self, setback_type):
         # type: (int) -> List[geo.Brep]
@@ -327,11 +319,7 @@ class NorthSkyCalculator(object):
         cut_distance = self._get_setback_at_height(height, setback_type)
         if cut_distance <= constants.TOL:
             return None
-        print(
-            "[_make_cutter_strip] height: {}, cut_distance: {}".format(
-                height, cut_distance
-            )
-        )
+
         moved = self._move_curve_inward(base_seg, cut_distance)
         strip = utils.make_closed_crv_from_crv_crv(base_seg, moved)
         if not strip or not strip.IsValid:
@@ -574,24 +562,13 @@ class NorthSkyCalculator(object):
         # base_segments 계산 과정에서, 노출 기준선이 lot_region의 경계에 붙어있는 경우는 제외한다.
         result_bases = []  # type: List[geo.Curve]
         for seg_base in target_segs:
-            print("[_compute_base_segments] processing seg_base: {}".format(seg_base))
             segs_exposure = self._get_exposure_base_segs(
                 seg_base, self.vec_exposure, crvs_check, self.max_distance
-            )
-            print(
-                "[_compute_base_segments] segs_exposure count: {}".format(
-                    len(segs_exposure)
-                )
             )
             segs_filtered = self._filter_excluded_segs(
                 lot_region=lot_region,
                 seg_base=seg_base,
                 segs=segs_exposure,
-            )
-            print(
-                "[_compute_base_segments] segs_filtered count: {}".format(
-                    len(segs_filtered)
-                )
             )
 
             if not segs_filtered:

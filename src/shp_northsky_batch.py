@@ -37,6 +37,7 @@ importlib.reload(shp_to_lot)
 
 FLOOR_HEIGHT_M = 3.0
 MAX_FLOOR = 7
+SUPPORTED_SETBACK_TYPES = (1, 2)
 
 
 def _resolve_shp_path(shp_dir):
@@ -264,7 +265,7 @@ def _save_qa_reports(shp_path, qa_data, setback_type):
     }
 
 
-def _save_csv(rows, shp_path):
+def _save_csv(rows, shp_path, setback_type):
     """result 폴더에 CSV 저장 후 경로 반환."""
     base_dir = os.path.dirname(os.path.abspath(shp_path))
     result_dir = os.path.join(base_dir, "result")
@@ -273,8 +274,10 @@ def _save_csv(rows, shp_path):
 
     stem = os.path.splitext(os.path.basename(shp_path))[0]
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    mode_tag = "type{}".format(int(setback_type))
     csv_path = os.path.join(
-        result_dir, "{}_northsky_allowed_area_{}.csv".format(stem, timestamp)
+        result_dir,
+        "{}_{}_northsky_allowed_area_{}.csv".format(stem, mode_tag, timestamp),
     )
 
     headers = [
@@ -302,34 +305,34 @@ def _save_csv(rows, shp_path):
 if __name__ == "__main__":
     shp_dir = globals().get("shp_dir")
     target_lot_limit = globals().get("target_lot_limit")
-    setback_type = globals().get("setback_type")
     if not shp_dir and len(sys.argv) > 1:
         shp_dir = sys.argv[1]
 
-    if setback_type is None:
-        raise ValueError("type is required.")
-
     shp_path = _resolve_shp_path(shp_dir)
-    rows, lot_count, road_count, target_count, landuse_counter, qa_data = (
-        _compute_allowable_rows(
-            shp_path,
-            include_counter=True,
-            target_lot_limit=target_lot_limit,
-            setback_type=setback_type,
-        )
-    )
-    output_csv_path = _save_csv(rows, shp_path)
-    qa_paths = _save_qa_reports(shp_path, qa_data, setback_type)
 
-    print("SHP: {}".format(shp_path))
-    if target_lot_limit is None:
-        print("대상 필지 제한: 전체")
-    else:
-        print("대상 필지 제한: 상위 {}개".format(target_lot_limit))
-    print("전체 대지 수: {}, 도로 수: {}".format(lot_count, road_count))
-    print("대지 landuse_code 상위 분포: {}".format(landuse_counter.most_common(10)))
-    print("대상(일반주거 13/14/15) 대지 수: {}".format(target_count))
-    print("저장 완료: {}".format(output_csv_path))
-    print("QA 저장 완료: {}".format(qa_paths.get("warning_path")))
-    print("QA 저장 완료: {}".format(qa_paths.get("road20m_path")))
-    print("QA 저장 완료: {}".format(qa_paths.get("centerline_path")))
+    for setback_type in SUPPORTED_SETBACK_TYPES:
+        rows, lot_count, road_count, target_count, landuse_counter, qa_data = (
+            _compute_allowable_rows(
+                shp_path,
+                include_counter=True,
+                target_lot_limit=target_lot_limit,
+                setback_type=setback_type,
+            )
+        )
+
+        output_csv_path = _save_csv(rows, shp_path, setback_type)
+        qa_paths = _save_qa_reports(shp_path, qa_data, setback_type)
+
+        print("SHP: {}".format(shp_path))
+        print("setback_type: {}".format(setback_type))
+        if target_lot_limit is None:
+            print("대상 필지 제한: 전체")
+        else:
+            print("대상 필지 제한: 상위 {}개".format(target_lot_limit))
+        print("전체 대지 수: {}, 도로 수: {}".format(lot_count, road_count))
+        print("대지 landuse_code 상위 분포: {}".format(landuse_counter.most_common(10)))
+        print("대상(일반주거 13/14/15) 대지 수: {}".format(target_count))
+        print("저장 완료: {}".format(output_csv_path))
+        print("QA 저장 완료: {}".format(qa_paths.get("warning_path")))
+        print("QA 저장 완료: {}".format(qa_paths.get("road20m_path")))
+        print("QA 저장 완료: {}".format(qa_paths.get("centerline_path")))
