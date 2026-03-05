@@ -215,9 +215,7 @@ class NorthSkyCalculator(object):
             if crossed < direct:
                 q0, q1 = q1, q0
 
-            slope_brep = geo.Brep.CreateFromCornerPoints(
-                p0, p1, q1, q0, constants.TOL
-            )
+            slope_brep = geo.Brep.CreateFromCornerPoints(p0, p1, q1, q0, constants.TOL)
             if slope_brep and slope_brep.IsValid:
                 breps.append(slope_brep)
 
@@ -349,15 +347,15 @@ class NorthSkyCalculator(object):
 
         return segs_front
 
-    def _get_centered_seg(self, crv, seg_exposure, vec):
+    def _get_centered_seg(self, seg_base, seg_exposure, vec):
         # type: (geo.Curve, geo.Curve, geo.Vector3d) -> geo.Curve
         """노출 세그먼트를 기준 세그먼트 중앙 기준으로 재배치한다."""
         pts = []
         for pt in (seg_exposure.PointAtStart, seg_exposure.PointAtEnd):
-            if utils.is_pt_on_crv(pt, crv):
+            if utils.is_pt_on_crv(pt, seg_base):
                 pts.append(pt)
             else:
-                pt_projected = utils.get_pt_from_pt_to_crvs(pt, vec, [crv])
+                pt_projected = utils.get_pt_from_pt_to_crvs(pt, -vec, [seg_base])
                 if not pt_projected:
                     pts.append(pt)
                 else:
@@ -429,7 +427,7 @@ class NorthSkyCalculator(object):
         return filtered
 
     def _is_general_residential_apartment(self, lot):
-        # type: (Any) -> bool
+        # type: (utils.Lot) -> bool
         """일반주거지역 공동주택 필지인지 판별한다."""
         if lot is None:
             return False
@@ -439,7 +437,7 @@ class NorthSkyCalculator(object):
         return code in constants.RESIDENTIAL_GENERAL_CODES
 
     def _get_owner_lot_for_seg(self, seg, candidate_lots):
-        # type: (geo.Curve, List[Any]) -> Optional[Any]
+        # type: (geo.Curve, List[utils.Lot]) -> Optional[utils.Lot]
         """세그먼트를 소유한 후보 필지를 찾아 반환한다."""
         for lot in candidate_lots:
             region = lot.region
@@ -448,7 +446,7 @@ class NorthSkyCalculator(object):
         return None
 
     def _is_road_centerline_case(self, seg_base, seg_exposure, owner_lot):
-        # type: (geo.Curve, geo.Curve, Optional[Any]) -> bool
+        # type: (geo.Curve, geo.Curve, Optional[utils.Lot]) -> bool
         """도로 중심선 기준 보정이 필요한 케이스인지 판별한다."""
         if not self._is_general_residential_apartment(owner_lot):
             return False
@@ -515,22 +513,20 @@ class NorthSkyCalculator(object):
                 gap_distance = self._get_gap_distance_from_base(seg_base, seg)
 
                 if owner_lot and not is_sunlight_regulated_landuse_code(
-                    getattr(owner_lot, "landuse_code", "")
+                    owner_lot.landuse_code
                 ):
                     if gap_distance >= (
                         constants.ROAD_EXCLUSION_DISTANCE_M - constants.TOL
                     ):
                         self.qa_has_road20m_exclusion = True
-                        owner_pnu = str(getattr(owner_lot, "pnu", "")).strip()
-                        if owner_pnu:
-                            self.qa_road20m_exclusion_owner_pnus.add(owner_pnu)
+                        if owner_lot.pnu:
+                            self.qa_road20m_exclusion_owner_pnus.add(owner_lot.pnu)
                     continue
 
                 if self._is_road_centerline_case(seg_base, seg, owner_lot):
                     self.qa_has_apartment_centerline = True
-                    owner_pnu = str(getattr(owner_lot, "pnu", "")).strip()
-                    if owner_pnu:
-                        self.qa_apartment_centerline_owner_pnus.add(owner_pnu)
+                    if owner_lot.pnu:
+                        self.qa_apartment_centerline_owner_pnus.add(owner_lot.pnu)
                     result_bases.append(
                         self._get_centered_seg(seg_base, seg, self.vec_exposure)
                     )
