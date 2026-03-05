@@ -31,6 +31,8 @@ PARCEL_INWARD_OFFSET_M = 1.0
 UNDER_10M_BUILDABLE_DEPTH_M = 1.5
 # 높이 규칙 분기 기준 높이(m)
 HEIGHT_LIMIT_M = 10.0
+# 사선 커터 Brep 시각화 최대 높이(m)
+CUTTER_VISUAL_MAX_HEIGHT_M = 50.0
 
 # 기본 노출 방향벡터 X 성분
 DEFAULT_VEC_EXPOSURE_X = 0.0
@@ -40,8 +42,8 @@ DEFAULT_VEC_EXPOSURE_Y = 1.0
 DEFAULT_VEC_EXPOSURE_Z = 0.0
 # 단일 계산 실행 시 기본 높이(m)
 DEFAULT_HEIGHT_M = 15.0
-# 높이 대비 후퇴 깊이 비율(깊이 = ratio * height)
-DEFAULT_RATIO = 1.5
+# 10m 초과 높이에 대해 적용하는 후퇴 비율(깊이 = height * 0.5)
+DEFAULT_RATIO = 0.5
 
 LANDUSE_MAP = {
     "0": "지정되지않음",

@@ -160,6 +160,93 @@ class NorthSkyCalculator(object):
 
         print("[compute] buildable_boundary: {}".format(self.buildable_boundary))
 
+    def get_cutter_breps(self):
+        # type: () -> List[geo.Brep]
+        h = float(constants.CUTTER_VISUAL_MAX_HEIGHT_M)
+        cut_distance = self._get_setback_at_height(h)
+        vertical_height = min(h, constants.HEIGHT_LIMIT_M)
+
+        breps = []
+        for base_seg in self.base_segments:
+            if vertical_height > constants.TOL:
+                seg_vertical_top = utils.move_crv(
+                    base_seg, geo.Vector3d(0.0, 0.0, vertical_height)
+                )
+                vertical_breps = geo.Brep.CreateFromLoft(
+                    [base_seg, seg_vertical_top],
+                    geo.Point3d.Unset,
+                    geo.Point3d.Unset,
+                    geo.LoftType.Straight,
+                    False,
+                )
+                if vertical_breps:
+                    for brep in vertical_breps:
+                        if brep and brep.IsValid:
+                            breps.append(brep)
+
+            if h <= constants.HEIGHT_LIMIT_M or cut_distance <= constants.TOL:
+                continue
+
+            seg_limit = utils.move_crv(
+                base_seg, geo.Vector3d(0.0, 0.0, constants.HEIGHT_LIMIT_M)
+            )
+            seg_limit_inset = self._move_curve_inward(
+                seg_limit, constants.HEIGHT_LIMIT_M * self.ratio
+            )
+            seg_top = utils.move_crv(base_seg, geo.Vector3d(0.0, 0.0, h))
+            seg_top_inset = self._move_curve_inward(seg_top, cut_distance)
+
+            step_strip = utils.make_closed_crv_from_crv_crv(seg_limit, seg_limit_inset)
+            if step_strip and step_strip.IsValid:
+                step_breps = geo.Brep.CreatePlanarBreps(step_strip, constants.TOL)
+                if step_breps:
+                    for brep in step_breps:
+                        if brep and brep.IsValid:
+                            breps.append(brep)
+
+            p0 = seg_limit_inset.PointAtStart
+            p1 = seg_limit_inset.PointAtEnd
+            q0 = seg_top_inset.PointAtStart
+            q1 = seg_top_inset.PointAtEnd
+
+            direct = p0.DistanceTo(q0) + p1.DistanceTo(q1)
+            crossed = p0.DistanceTo(q1) + p1.DistanceTo(q0)
+            if crossed < direct:
+                q0, q1 = q1, q0
+
+            slope_brep = geo.Brep.CreateFromCornerPoints(
+                p0, p1, q1, q0, constants.TOL
+            )
+            if slope_brep and slope_brep.IsValid:
+                breps.append(slope_brep)
+
+        return breps
+
+    def _get_setback_at_height(self, height):
+        # type: (float) -> float
+        if height <= constants.HEIGHT_LIMIT_M:
+            return 0.0
+        return height * self.ratio
+
+    def _move_curve_inward(self, crv, distance):
+        # type: (geo.Curve, float) -> geo.Curve
+        move_vec = geo.Vector3d(-self.vec_exposure)
+        move_vec.Unitize()
+        move_vec *= distance
+        return utils.move_crv(crv, move_vec)
+
+    def _make_cutter_strip(self, base_seg, height):
+        # type: (geo.Curve, float) -> Optional[geo.Curve]
+        cut_distance = self._get_setback_at_height(height)
+        if cut_distance <= constants.TOL:
+            return None
+
+        moved = self._move_curve_inward(base_seg, cut_distance)
+        strip = utils.make_closed_crv_from_crv_crv(base_seg, moved)
+        if not strip or not strip.IsValid:
+            return None
+        return strip
+
     def _get_target_segs(self, boundary, vec, tol=math.radians(1)):
         # type: (geo.Curve, geo.Vector3d, float) -> List[geo.Curve]
         targets = []
@@ -466,21 +553,10 @@ class NorthSkyCalculator(object):
         if not base_segments:
             return region
 
-        cut_distance = (
-            constants.UNDER_10M_BUILDABLE_DEPTH_M
-            if height < constants.HEIGHT_LIMIT_M
-            else (self.ratio * height)
-        )
-
         cutters = []
         for base_seg in base_segments:
-            move_vec = geo.Vector3d(-self.vec_exposure)
-            move_vec.Unitize()
-            move_vec *= cut_distance
-
-            moved = utils.move_crv(base_seg, move_vec)
-            strip = utils.make_closed_crv_from_crv_crv(base_seg, moved)
-            if strip and strip.IsValid:
+            strip = self._make_cutter_strip(base_seg, height)
+            if strip:
                 cutters.append(strip)
 
         if not cutters:

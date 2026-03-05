@@ -12,6 +12,7 @@ GH Inputs (권장):
 GH Outputs (권장):
 - northsky_base_segments: List[geo.Curve]
 - northsky_buildable_boundary: Optional[geo.Curve]
+- northsky_cutter_breps: List[geo.Brep]
 - northsky_calculator: northsky.NorthSkyCalculator
 """
 
@@ -63,6 +64,7 @@ if __name__ == "__main__":
 
     northsky_base_segments = None
     northsky_buildable_boundary = None
+    northsky_cutter_breps = None
     northsky_calculator = None
 
     northsky_calculator = northsky.create_calculator(
@@ -75,6 +77,7 @@ if __name__ == "__main__":
     northsky_calculator.compute(height=float(height))
     northsky_base_segments = northsky_calculator.base_segments
     northsky_buildable_boundary = northsky_calculator.buildable_boundary
+    northsky_cutter_breps = northsky_calculator.get_cutter_breps()
     offset_lot_region = northsky_calculator.lot_region_inward
 
     if debug:
@@ -86,4 +89,5 @@ if __name__ == "__main__":
                 northsky_buildable_boundary is None
             )
         )
+        print("[main] cutter_breps count: {}".format(len(northsky_cutter_breps or [])))
         print("[main] offset_lot_region is None: {}".format(offset_lot_region is None))
