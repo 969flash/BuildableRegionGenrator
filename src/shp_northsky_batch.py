@@ -2,6 +2,7 @@
 
 Inputs (GH globals or CLI arg):
 - shp_dir: SHP 파일이 들어있는 디렉토리 경로
+- target_lot_limit: 계산할 대상 필지 수 제한(옵션)
 
 동작:
 1) 디렉토리에서 .shp 파일 탐색
@@ -65,7 +66,7 @@ def _resolve_shp_path(shp_dir):
     return shp_files[0]
 
 
-def _compute_allowable_rows(shp_path, include_counter=False):
+def _compute_allowable_rows(shp_path, include_counter=False, target_lot_limit=None):
     """대상 SHP에 대해 층별 허용면적 테이블(row dict 리스트) 생성."""
     repo = shp_to_lot.LotRepository(shp_path)
     lots, roads = repo.lots, repo.roads
@@ -80,6 +81,10 @@ def _compute_allowable_rows(shp_path, include_counter=False):
         if utils.normalize_landuse_code(getattr(lot, "landuse_code", ""))
         in constants.RESIDENTIAL_GENERAL_CODES
     ]
+
+    if target_lot_limit is not None:
+        if target_lot_limit > 0:
+            target_lots = target_lots[:target_lot_limit]
 
     rows = []
     total_height = FLOOR_HEIGHT_M * MAX_FLOOR
@@ -288,17 +293,26 @@ def _save_csv(rows, shp_path):
 
 if __name__ == "__main__":
     shp_dir = globals().get("shp_dir")
+    target_lot_limit = globals().get("target_lot_limit")
     if not shp_dir and len(sys.argv) > 1:
         shp_dir = sys.argv[1]
 
     shp_path = _resolve_shp_path(shp_dir)
     rows, lot_count, road_count, target_count, landuse_counter, qa_data = (
-        _compute_allowable_rows(shp_path, include_counter=True)
+        _compute_allowable_rows(
+            shp_path,
+            include_counter=True,
+            target_lot_limit=target_lot_limit,
+        )
     )
     output_csv_path = _save_csv(rows, shp_path)
     qa_paths = _save_qa_reports(shp_path, qa_data)
 
     print("SHP: {}".format(shp_path))
+    if target_lot_limit is None:
+        print("대상 필지 제한: 전체")
+    else:
+        print("대상 필지 제한: 상위 {}개".format(target_lot_limit))
     print("전체 대지 수: {}, 도로 수: {}".format(lot_count, road_count))
     print("대지 landuse_code 상위 분포: {}".format(landuse_counter.most_common(10)))
     print("대상(일반주거 13/14/15) 대지 수: {}".format(target_count))
