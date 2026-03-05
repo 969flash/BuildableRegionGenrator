@@ -18,21 +18,14 @@ except Exception:
     import utils  # type: ignore
 
 try:
-    from .constants import ANGLE_90_DEGREE, TOL  # type: ignore
+    from . import constants  # type: ignore
 except Exception:
-    from constants import ANGLE_90_DEGREE, TOL  # type: ignore
+    import constants  # type: ignore
 
 import importlib
 
 
 importlib.reload(utils)
-
-
-RESIDENTIAL_GENERAL_CODES = {"13", "14", "15"}
-ROAD_EXCLUSION_DISTANCE_M = 20.0
-PARCEL_INWARD_OFFSET_M = 1.0
-UNDER_10M_BUILDABLE_DEPTH_M = 1.5
-HEIGHT_LIMIT = 10.0
 
 
 def is_sunlight_regulated_landuse_code(landuse_code):
@@ -51,6 +44,34 @@ def is_sunlight_regulated_landuse_code(landuse_code):
     return code in {"11", "12", "13", "14", "15", "17"}
 
 
+def create_calculator(
+    target_lot,
+    neighbor_lots,
+    max_distance,
+    vec_exposure=None,
+    height=constants.DEFAULT_HEIGHT_M,
+    ratio=constants.DEFAULT_RATIO,
+):
+    # type: (Any, List[Any], float, Optional[geo.Vector3d], float, float) -> "NorthSkyCalculator"
+    vec = (
+        vec_exposure
+        if vec_exposure is not None
+        else geo.Vector3d(
+            constants.DEFAULT_VEC_EXPOSURE_X,
+            constants.DEFAULT_VEC_EXPOSURE_Y,
+            constants.DEFAULT_VEC_EXPOSURE_Z,
+        )
+    )
+    return NorthSkyCalculator(
+        target_lot=target_lot,
+        neighbor_lots=neighbor_lots,
+        vec_exposure=geo.Vector3d(vec),
+        max_distance=float(max_distance),
+        height=float(height),
+        ratio=float(ratio),
+    )
+
+
 class NorthSkyCalculator(object):
     """정북사선을 고려한 기준선/건축가능영역 계산기.
 
@@ -66,11 +87,10 @@ class NorthSkyCalculator(object):
         neighbor_lots,
         vec_exposure,
         max_distance,
-        is_center_start,
         height,
         ratio,
     ):
-        # type: (Any, List[Any], geo.Vector3d, float, bool, float, float) -> None
+        # type: (Any, List[Any], geo.Vector3d, float, float, float) -> None
         self.target_lot = target_lot
         self.neighbor_lots = list(neighbor_lots or [])
 
@@ -82,7 +102,6 @@ class NorthSkyCalculator(object):
 
         self.vec_exposure = geo.Vector3d(vec_exposure)
         self.max_distance = float(max_distance)
-        self.is_center_start = bool(is_center_start)
 
         self.height = float(height)
         self.ratio = float(ratio)
@@ -100,7 +119,7 @@ class NorthSkyCalculator(object):
                 self.neighbor_lot_crvs_without_gong.append(region)
 
         self.base_segments = []  # type: List[geo.Curve]
-        self.buildable_boundary = None  # type: Optional[geo.Curve]
+        self.buildable_boundary = None  # type: Optional[geo.Curve]s
         self.buildable_boundary_raw = None  # type: Optional[geo.Curve]
         self.lot_region_inward = self.lot_region  # type: geo.Curve
         self.qa_has_road20m_exclusion = False
@@ -113,16 +132,10 @@ class NorthSkyCalculator(object):
             neighbor_lots=self.neighbor_lots,
         )
 
-        if PARCEL_INWARD_OFFSET_M > 0:
+        if constants.PARCEL_INWARD_OFFSET_M > 0:
             self.lot_region_inward = utils.offset_region_inward(
-                self.lot_region, PARCEL_INWARD_OFFSET_M
+                self.lot_region, constants.PARCEL_INWARD_OFFSET_M
             )
-            sc.sticky["lot_region_inward"] = (
-                self.lot_region_inward,
-                self.lot_region,
-                PARCEL_INWARD_OFFSET_M,
-            )
-            print("self.lot_region_inward", self.lot_region_inward)
 
     def compute(self, height=None):
         # type: (Optional[float]) -> None
@@ -177,7 +190,7 @@ class NorthSkyCalculator(object):
         return: 노출 기준선에서 노출된 영역의 경계선 세그먼트들
         """
         x_vec = geo.Vector3d(y_vec)
-        x_vec.Rotate(ANGLE_90_DEGREE, geo.Vector3d.ZAxis)
+        x_vec.Rotate(constants.ANGLE_90_DEGREE, geo.Vector3d.ZAxis)
         plane = geo.Plane(seg.PointAtStart, x_vec, y_vec)
 
         base_interval = utils.get_square_domain_from_seg(seg, plane).x_interval
@@ -215,9 +228,13 @@ class NorthSkyCalculator(object):
         dict_domain = {}
         for intersection in intersections:
             for target in self._get_target_segs(intersection, y_vec):
-                pts_cutter = [v for v in vertices if utils.is_pt_on_crv(v, target, TOL)]
+                pts_cutter = [
+                    v for v in vertices if utils.is_pt_on_crv(v, target, constants.TOL)
+                ]
                 if pts_cutter:
-                    target_segs = utils.split_crv_from_pts(target, pts_cutter, TOL, TOL)
+                    target_segs = utils.split_crv_from_pts(
+                        target, pts_cutter, constants.TOL, constants.TOL
+                    )
                 else:
                     target_segs = [target]
                 for target_seg in target_segs:
@@ -233,11 +250,14 @@ class NorthSkyCalculator(object):
             if (
                 sum(i.Length for i in base_intervals)
                 - sum(i.Length for i in diff_intervals)
-            ) < TOL:
+            ) < constants.TOL:
                 continue
 
             segs_front.append(dict_domain[square_domain])
-            if not diff_intervals or sum(i.Length for i in diff_intervals) < TOL:
+            if (
+                not diff_intervals
+                or sum(i.Length for i in diff_intervals) < constants.TOL
+            ):
                 break
 
             base_intervals = diff_intervals
@@ -258,14 +278,10 @@ class NorthSkyCalculator(object):
                     pts.append((pt + pt_projected) / 2)
         return geo.LineCurve(pts[0], pts[1])
 
-    def _get_centered_segs(self, crv, segs_exposure, vec):
-        # type: (geo.Curve, List[geo.Curve], geo.Vector3d) -> List[geo.Curve]
-        return [self._get_centered_seg(crv, seg, vec) for seg in segs_exposure]
-
     def _filter_short_segs(self, segs, vec_in):
         # type: (List[geo.Curve], geo.Vector3d) -> List[geo.Curve]
         vec_check = geo.Vector3d(vec_in)
-        vec_check.Rotate(ANGLE_90_DEGREE, geo.Vector3d.ZAxis)
+        vec_check.Rotate(constants.ANGLE_90_DEGREE, geo.Vector3d.ZAxis)
 
         filtered = []
         for crv in utils.get_joined_crvs(segs):
@@ -331,7 +347,7 @@ class NorthSkyCalculator(object):
             return [lot for lot in (neighbor_lots or []) if lot is not None]
 
         bb_query = geo.BoundingBox(bb_target.Min, bb_target.Max)
-        inflate_dist = max(float(max_distance), TOL)
+        inflate_dist = max(float(max_distance), constants.TOL)
         bb_query.Inflate(inflate_dist, inflate_dist, 0.0)
 
         filtered = []
@@ -349,7 +365,7 @@ class NorthSkyCalculator(object):
         if not bool(getattr(lot, "is_apartment", False)):
             return False
         code = self._normalize_landuse_code(getattr(lot, "landuse_code", ""))
-        return code in RESIDENTIAL_GENERAL_CODES
+        return code in constants.RESIDENTIAL_GENERAL_CODES
 
     def _get_owner_lot_for_seg(self, seg, candidate_lots):
         # type: (geo.Curve, List[Any]) -> Optional[Any]
@@ -371,7 +387,7 @@ class NorthSkyCalculator(object):
         if not pt_on_base:
             return False
 
-        return pt_mid.DistanceTo(pt_on_base) > TOL
+        return pt_mid.DistanceTo(pt_on_base) > constants.TOL
 
     def _get_gap_distance_from_base(self, seg_base, seg_exposure):
         # type: (geo.Curve, geo.Curve) -> float
@@ -428,16 +444,16 @@ class NorthSkyCalculator(object):
                 if owner_lot and not is_sunlight_regulated_landuse_code(
                     getattr(owner_lot, "landuse_code", "")
                 ):
-                    if gap_distance >= (ROAD_EXCLUSION_DISTANCE_M - TOL):
+                    if gap_distance >= (
+                        constants.ROAD_EXCLUSION_DISTANCE_M - constants.TOL
+                    ):
                         self.qa_has_road20m_exclusion = True
                         owner_pnu = str(getattr(owner_lot, "pnu", "")).strip()
                         if owner_pnu:
                             self.qa_road20m_exclusion_owner_pnus.add(owner_pnu)
                     continue
 
-                if self.is_center_start and self._is_road_centerline_case(
-                    seg_base, seg, owner_lot
-                ):
+                if self._is_road_centerline_case(seg_base, seg, owner_lot):
                     self.qa_has_apartment_centerline = True
                     owner_pnu = str(getattr(owner_lot, "pnu", "")).strip()
                     if owner_pnu:
@@ -460,8 +476,8 @@ class NorthSkyCalculator(object):
             return region
 
         cut_distance = (
-            UNDER_10M_BUILDABLE_DEPTH_M
-            if height < HEIGHT_LIMIT
+            constants.UNDER_10M_BUILDABLE_DEPTH_M
+            if height < constants.HEIGHT_LIMIT_M
             else (self.ratio * height)
         )
 
@@ -484,5 +500,7 @@ class NorthSkyCalculator(object):
             return None
 
         result_region = max(result_regions, key=lambda r: utils.get_area(r))
-        simplified = result_region.Simplify(geo.CurveSimplifyOptions.All, TOL, 1.0)
+        simplified = result_region.Simplify(
+            geo.CurveSimplifyOptions.All, constants.TOL, 1.0
+        )
         return simplified or result_region

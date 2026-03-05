@@ -34,14 +34,8 @@ importlib.reload(northsky)
 importlib.reload(shp_to_lot)
 
 
-RESIDENTIAL_GENERAL_CODES = {"13", "14", "15"}
 FLOOR_HEIGHT_M = 3.0
 MAX_FLOOR = 7
-
-# NorthSky 계산 기본값
-DEFAULT_VEC_EXPOSURE = geo.Vector3d(0, 1, 0)
-DEFAULT_IS_CENTER_START = True
-DEFAULT_RATIO = 1.5
 
 
 def _normalize_landuse_code(value):
@@ -93,7 +87,7 @@ def _compute_allowable_rows(shp_path, include_counter=False):
         lot
         for lot in lots
         if _normalize_landuse_code(getattr(lot, "landuse_code", ""))
-        in RESIDENTIAL_GENERAL_CODES
+        in constants.RESIDENTIAL_GENERAL_CODES
     ]
 
     rows = []
@@ -106,14 +100,17 @@ def _compute_allowable_rows(shp_path, include_counter=False):
         other_lots = repo.get_other_lots(lot)
 
         try:
-            calc = northsky.NorthSkyCalculator(
+            calc = northsky.create_calculator(
                 target_lot=lot,
                 neighbor_lots=other_lots,
-                vec_exposure=DEFAULT_VEC_EXPOSURE,
+                vec_exposure=geo.Vector3d(
+                    constants.DEFAULT_VEC_EXPOSURE_X,
+                    constants.DEFAULT_VEC_EXPOSURE_Y,
+                    constants.DEFAULT_VEC_EXPOSURE_Z,
+                ),
                 max_distance=total_height,
-                is_center_start=DEFAULT_IS_CENTER_START,
                 height=FLOOR_HEIGHT_M,
-                ratio=DEFAULT_RATIO,
+                ratio=constants.DEFAULT_RATIO,
             )
         except Exception:
             warning_pnus.add(str(getattr(lot, "pnu", "")))

@@ -8,7 +8,6 @@ GH Inputs (권장):
 - other_lots: List[utils.Lot]
 - vec_exposure: geo.Vector3d (기본: (0,1,0))
 - max_distance: float (기본: 20.0)
-- is_center_start: bool (기본: True)
 
 GH Outputs (권장):
 - northsky_base_segments: List[geo.Curve]
@@ -19,14 +18,16 @@ GH Outputs (권장):
 import Rhino.Geometry as geo  # type: ignore
 
 try:
-    from . import northsky  # type: ignore
+    from . import northsky, constants  # type: ignore
 except Exception:
+    import constants  # type: ignore
     import northsky  # type: ignore
 
 import importlib
 
 
 importlib.reload(northsky)
+importlib.reload(constants)
 
 
 if __name__ == "__main__":
@@ -36,11 +37,14 @@ if __name__ == "__main__":
     target_lot = globals().get("target_lot")
     other_lots = globals().get("other_lots")
 
-    vec_exposure = globals().get("vec_exposure") or geo.Vector3d(0, 1, 0)
+    vec_exposure = globals().get("vec_exposure") or geo.Vector3d(
+        constants.DEFAULT_VEC_EXPOSURE_X,
+        constants.DEFAULT_VEC_EXPOSURE_Y,
+        constants.DEFAULT_VEC_EXPOSURE_Z,
+    )
     max_distance = globals().get("max_distance", 20.0)
-    is_center_start = globals().get("is_center_start", True)
-    height = globals().get("height", 15.0)
-    ratio = globals().get("ratio", 1.5)
+    height = globals().get("height", constants.DEFAULT_HEIGHT_M)
+    ratio = globals().get("ratio", constants.DEFAULT_RATIO)
 
     if debug:
         target_pnu = ""
@@ -63,14 +67,13 @@ if __name__ == "__main__":
     northsky_buildable_boundary = None
     northsky_calculator = None
 
-    northsky_calculator = northsky.NorthSkyCalculator(
+    northsky_calculator = northsky.create_calculator(
         target_lot=target_lot,
         neighbor_lots=other_lots,
         vec_exposure=vec_exposure,
-        max_distance=float(max_distance),
-        is_center_start=bool(is_center_start),
-        height=float(height),
-        ratio=float(ratio),
+        max_distance=max_distance,
+        height=height,
+        ratio=ratio,
     )
     northsky_calculator.compute(height=float(height))
     northsky_base_segments = northsky_calculator.base_segments

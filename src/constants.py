@@ -12,10 +12,36 @@ LANDUSE_MAP:
 
 import math
 
+# 지오메트리 연산 허용오차(모델 단위)
 TOL = 0.001
+# 원시 SHP 데이터 보정/판단에 쓰는 완화 오차
 RAW_TOL = 0.1
+# 90도 회전에 사용하는 라디안 값
 ANGLE_90_DEGREE = math.pi / 2.0
+# 이웃 필지 1차 bbox 프리필터 거리(m)
 PREFILTER_DISTANCE_M = 300.0
+
+# 일반주거지역 코드 집합(배치 대상 필터)
+RESIDENTIAL_GENERAL_CODES = {"13", "14", "15"}
+# 비일조권 용도지역일 때 도로 제외 판단 거리 기준(m)
+ROAD_EXCLUSION_DISTANCE_M = 20.0
+# 대상 필지 내부 옵셋 거리(m)
+PARCEL_INWARD_OFFSET_M = 1.0
+# 10m 미만 높이 구간에서 적용하는 고정 후퇴 깊이(m)
+UNDER_10M_BUILDABLE_DEPTH_M = 1.5
+# 높이 규칙 분기 기준 높이(m)
+HEIGHT_LIMIT_M = 10.0
+
+# 기본 노출 방향벡터 X 성분
+DEFAULT_VEC_EXPOSURE_X = 0.0
+# 기본 노출 방향벡터 Y 성분(정북)
+DEFAULT_VEC_EXPOSURE_Y = 1.0
+# 기본 노출 방향벡터 Z 성분
+DEFAULT_VEC_EXPOSURE_Z = 0.0
+# 단일 계산 실행 시 기본 높이(m)
+DEFAULT_HEIGHT_M = 15.0
+# 높이 대비 후퇴 깊이 비율(깊이 = ratio * height)
+DEFAULT_RATIO = 1.5
 
 LANDUSE_MAP = {
     "0": "지정되지않음",
@@ -46,4 +72,5 @@ LANDUSE_MAP = {
     "81": "자연환경보전지역",
 }
 
+# 용도지역 코드 해석 실패 시 표시 문자열
 LANDUSE_UNKNOWN = "미확인"
