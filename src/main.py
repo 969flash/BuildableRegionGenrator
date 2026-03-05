@@ -81,7 +81,9 @@ if __name__ == "__main__":
     northsky_calculator.compute(height=float(height), type=int(setback_type))
     northsky_base_segments = northsky_calculator.base_segments
     northsky_buildable_boundary = northsky_calculator.buildable_boundary
-    northsky_cutter_breps = northsky_calculator.get_cutter_breps(type=int(setback_type))
+    northsky_cutter_breps = northsky_calculator.get_cutter_breps(
+        setback_type=int(setback_type)
+    )
     offset_lot_region = northsky_calculator.lot_region_inward
 
     if debug:

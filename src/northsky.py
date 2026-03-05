@@ -166,11 +166,12 @@ class NorthSkyCalculator(object):
 
         print("[compute] buildable_boundary: {}".format(self.buildable_boundary))
 
-    def get_cutter_breps(self, setback_type=None):
-        # type: (Optional[int]) -> List[geo.Brep]
+    def get_cutter_breps(self, setback_type):
+        # type: (int) -> List[geo.Brep]
         """법규 시각화용 커터 Brep(수직/수평/사선)을 생성한다."""
+        mode = int(setback_type)
         h = float(constants.CUTTER_VISUAL_MAX_HEIGHT_M)
-        cut_distance = self._get_setback_at_height(h, setback_type)
+        cut_distance = self._get_setback_at_height(h, mode)
         vertical_height = min(h, constants.HEIGHT_LIMIT_M)
 
         breps = []
@@ -197,12 +198,11 @@ class NorthSkyCalculator(object):
             seg_limit = utils.move_crv(
                 base_seg, geo.Vector3d(0.0, 0.0, constants.HEIGHT_LIMIT_M)
             )
+            limit_distance = self._get_setback_at_height(constants.HEIGHT_LIMIT_M, mode)
             seg_limit_inset = self._move_curve_inward(
                 seg_limit,
-                self._get_setback_at_height(constants.HEIGHT_LIMIT_M, setback_type),
+                limit_distance,
             )
-            seg_top = utils.move_crv(base_seg, geo.Vector3d(0.0, 0.0, h))
-            seg_top_inset = self._move_curve_inward(seg_top, cut_distance)
 
             step_strip = utils.make_closed_crv_from_crv_crv(seg_limit, seg_limit_inset)
             if step_strip and step_strip.IsValid:
@@ -212,10 +212,69 @@ class NorthSkyCalculator(object):
                         if brep and brep.IsValid:
                             breps.append(brep)
 
-            p0 = seg_limit_inset.PointAtStart
-            p1 = seg_limit_inset.PointAtEnd
-            q0 = seg_top_inset.PointAtStart
-            q1 = seg_top_inset.PointAtEnd
+            if mode == 2 and h > constants.SETBACK_TYPE2_FIXED_MAX_HEIGHT_M:
+                fixed_h = float(constants.SETBACK_TYPE2_FIXED_MAX_HEIGHT_M)
+                fixed_distance = self._get_setback_at_height(fixed_h, mode)
+
+                seg_limit_fixed_inset = self._move_curve_inward(
+                    seg_limit, fixed_distance
+                )
+                jump_strip = utils.make_closed_crv_from_crv_crv(
+                    seg_limit_inset, seg_limit_fixed_inset
+                )
+                if jump_strip and jump_strip.IsValid:
+                    jump_breps = geo.Brep.CreatePlanarBreps(jump_strip, constants.TOL)
+                    if jump_breps:
+                        for brep in jump_breps:
+                            if brep and brep.IsValid:
+                                breps.append(brep)
+
+                seg_fixed = utils.move_crv(base_seg, geo.Vector3d(0.0, 0.0, fixed_h))
+                seg_fixed_inset = self._move_curve_inward(seg_fixed, fixed_distance)
+
+                fixed_vertical_breps = geo.Brep.CreateFromLoft(
+                    [seg_limit_fixed_inset, seg_fixed_inset],
+                    geo.Point3d.Unset,
+                    geo.Point3d.Unset,
+                    geo.LoftType.Straight,
+                    False,
+                )
+                if fixed_vertical_breps:
+                    for brep in fixed_vertical_breps:
+                        if brep and brep.IsValid:
+                            breps.append(brep)
+
+                fixed_post_distance = float(fixed_h) * self.ratio
+                seg_fixed_post_inset = self._move_curve_inward(
+                    seg_fixed, fixed_post_distance
+                )
+                fixed_jump_strip = utils.make_closed_crv_from_crv_crv(
+                    seg_fixed_inset, seg_fixed_post_inset
+                )
+                if fixed_jump_strip and fixed_jump_strip.IsValid:
+                    fixed_jump_breps = geo.Brep.CreatePlanarBreps(
+                        fixed_jump_strip, constants.TOL
+                    )
+                    if fixed_jump_breps:
+                        for brep in fixed_jump_breps:
+                            if brep and brep.IsValid:
+                                breps.append(brep)
+
+                seg_top = utils.move_crv(base_seg, geo.Vector3d(0.0, 0.0, h))
+                seg_top_inset = self._move_curve_inward(seg_top, cut_distance)
+
+                p0 = seg_fixed_post_inset.PointAtStart
+                p1 = seg_fixed_post_inset.PointAtEnd
+                q0 = seg_top_inset.PointAtStart
+                q1 = seg_top_inset.PointAtEnd
+            else:
+                seg_top = utils.move_crv(base_seg, geo.Vector3d(0.0, 0.0, h))
+                seg_top_inset = self._move_curve_inward(seg_top, cut_distance)
+
+                p0 = seg_limit_inset.PointAtStart
+                p1 = seg_limit_inset.PointAtEnd
+                q0 = seg_top_inset.PointAtStart
+                q1 = seg_top_inset.PointAtEnd
 
             direct = p0.DistanceTo(q0) + p1.DistanceTo(q1)
             crossed = p0.DistanceTo(q1) + p1.DistanceTo(q0)
