@@ -22,8 +22,9 @@ importlib.reload(utils)
 importlib.reload(constants)
 
 
-def print_lot_info(lot: utils.Lot):
-    """필지 정보 출력"""
+def print_lot_info(lot):
+    # type: (utils.Lot) -> None
+    """필지 핵심 속성을 콘솔에 출력한다."""
     print(f"PNU: {lot.pnu}")
     print(f"지목: {lot.jimok}")
     print(f"면적: {lot.area:.2f} ㎡")
@@ -33,6 +34,7 @@ def print_lot_info(lot: utils.Lot):
 class LotRepository(object):
     def __init__(self, shp_path):
         # type: (str) -> None
+        """SHP를 로드해 lot/road 저장소를 초기화한다."""
         if not shp_path or not os.path.isfile(shp_path):
             raise FileNotFoundError("SHP 파일을 찾을 수 없습니다: {}".format(shp_path))
 
@@ -44,6 +46,7 @@ class LotRepository(object):
 
     def get_target_lot(self, pnu):
         # type: (str) -> Optional[utils.Lot]
+        """PNU에 해당하는 대상 lot를 찾아 반환한다."""
         if pnu is None:
             return None
         pnu_text = str(pnu)
@@ -51,6 +54,7 @@ class LotRepository(object):
 
     def _get_bbox(self, lot):
         # type: (utils.Lot) -> Optional[geo.BoundingBox]
+        """lot의 bbox를 계산하고 캐시에 저장해 재사용한다."""
         key = id(lot)
         cached = self._bbox_cache.get(key)
         if cached is not None:
@@ -75,6 +79,7 @@ class LotRepository(object):
 
     def is_bbox_overlapping(self, bb_a, bb_b):
         # type: (Optional[geo.BoundingBox], Optional[geo.BoundingBox]) -> bool
+        """두 bbox가 XY 기준으로 겹치는지 판별한다."""
         if not bb_a or not bb_b:
             return False
         return not (
@@ -86,6 +91,7 @@ class LotRepository(object):
 
     def get_other_lots(self, target_lot):
         # type: (utils.Lot) -> List[utils.Lot]
+        """대상 lot를 제외한 주변 lot 목록을 반환한다."""
         if target_lot is None:
             return []
 
@@ -107,6 +113,7 @@ class LotRepository(object):
 
     def get_target_and_others(self, pnu):
         # type: (str) -> tuple
+        """PNU로 대상 lot와 이외 lot 목록을 함께 반환한다."""
         target_lot = self.get_target_lot(pnu)
         if target_lot is None:
             raise ValueError("PNU '{}'에 해당하는 필지를 찾을 수 없습니다.".format(pnu))

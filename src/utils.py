@@ -249,7 +249,8 @@ class Lot(Parcel):
         self.has_road_access = False  # 도로 접근 여부
 
 
-def read_shp_file(file_path: str) -> Tuple[List[Any], List[Any], List[str]]:
+def read_shp_file(file_path):
+    # type: (str) -> Tuple[List[Any], List[Any], List[str]]
     """shapefile을 읽어서 shapes와 records를 반환"""
     sf = shapefile.Reader(file_path, encoding="utf-8")
 
@@ -281,7 +282,8 @@ def get_curve_from_points(
     return curve_crv if curve_crv and curve_crv.IsValid else None
 
 
-def get_part_indices(shape: Any) -> List[Tuple[int, int]]:
+def get_part_indices(shape):
+    # type: (Any) -> List[Tuple[int, int]]
     """shape의 각 파트의 시작과 끝 인덱스를 반환"""
     if not hasattr(shape, "parts") or len(shape.parts) <= 1:
         return [(0, len(shape.points))]
@@ -300,7 +302,8 @@ def get_intersection_points(
     return [event.PointA for event in intersections]
 
 
-def get_vertices(curve: geo.Curve) -> List[geo.Point3d]:
+def get_vertices(curve):
+    # type: (geo.Curve) -> List[geo.Point3d]
     """커브의 모든 정점(Vertex)들을 추출합니다."""
     if not curve:
         return []
@@ -310,7 +313,8 @@ def get_vertices(curve: geo.Curve) -> List[geo.Point3d]:
     return vertices
 
 
-def explode(crv: geo.Curve) -> List[geo.Curve]:
+def explode(crv):
+    # type: (geo.Curve) -> List[geo.Curve]
     """커브를 segment들로 분해합니다.
 
     - 폴리라인/폴리커브는 각 세그먼트로 분해
@@ -374,7 +378,8 @@ class _SquareDomain(object):
     - sorting은 y(사선 방향 거리) 오름차순 우선.
     """
 
-    def __init__(self, x_min: float, x_max: float, y_min: float, y_max: float):
+    def __init__(self, x_min, x_max, y_min, y_max):
+        # type: (float, float, float, float) -> None
         if x_min <= x_max:
             self.x_interval = geo.Interval(x_min, x_max)
         else:
@@ -413,7 +418,8 @@ class _SquareDomain(object):
         return isinstance(other, _SquareDomain) and self._key == other._key
 
 
-def _plane_uv(plane: geo.Plane, pt: geo.Point3d) -> Tuple[float, float]:
+def _plane_uv(plane, pt):
+    # type: (geo.Plane, geo.Point3d) -> Tuple[float, float]
     rc, u, v = plane.ClosestParameter(pt)
     if rc:
         return float(u), float(v)
@@ -422,7 +428,8 @@ def _plane_uv(plane: geo.Plane, pt: geo.Point3d) -> Tuple[float, float]:
     return float(op * plane.XAxis), float(op * plane.YAxis)
 
 
-def get_square_domain_from_seg(seg: geo.Curve, plane: geo.Plane) -> _SquareDomain:
+def get_square_domain_from_seg(seg, plane):
+    # type: (geo.Curve, geo.Plane) -> _SquareDomain
     """segment를 plane 좌표계로 투영해 x/y 구간(domain)을 반환합니다."""
     pts = [seg.PointAtStart, seg.PointAtEnd]
     uvs = [_plane_uv(plane, p) for p in pts]
@@ -432,7 +439,8 @@ def get_square_domain_from_seg(seg: geo.Curve, plane: geo.Plane) -> _SquareDomai
 
 
 class _RectRegion(object):
-    def __init__(self, crv: geo.Curve):
+    def __init__(self, crv):
+        # type: (geo.Curve) -> None
         self.crv = crv
 
 
@@ -456,7 +464,8 @@ def get_rect_from_seg(
     return _RectRegion(geo.PolylineCurve(poly))
 
 
-def is_pt_on_crv(pt: geo.Point3d, crv: geo.Curve, tol=TOL):
+def is_pt_on_crv(pt, crv, tol=TOL):
+    # type: (geo.Point3d, geo.Curve, float) -> bool
     """pt가 crv 위에 있는지 확인"""
     rc, param = crv.ClosestPoint(pt, tol)
     if not rc:
@@ -469,7 +478,8 @@ def is_pt_on_crv(pt: geo.Point3d, crv: geo.Curve, tol=TOL):
     return False
 
 
-def is_seg_on_crv(seg: geo.Curve, crv: geo.Curve, tol=TOL):
+def is_seg_on_crv(seg, crv, tol=TOL):
+    # type: (geo.Curve, geo.Curve, float) -> bool
     """seg가 crv 위에 있는지 확인"""
     # seg의 끝점 밑 중점은 crv 위에 있어야 한다.
     for pt in (seg.PointAtStart, seg.PointAtEnd):
@@ -505,7 +515,8 @@ def get_overlapped_curves(
     return geo.Curve.JoinCurves(overlapped_segments)
 
 
-def get_overlapped_length(curve_a: geo.Curve, curve_b: geo.Curve) -> float:
+def get_overlapped_length(curve_a, curve_b):
+    # type: (geo.Curve, geo.Curve) -> float
     """두 커브가 겹치는 총 길이를 계산합니다."""
     overlapped_curves = get_overlapped_curves(curve_a, curve_b)
     if not overlapped_curves:
@@ -627,7 +638,8 @@ def has_region_intersection(
     return False
 
 
-def move_crv(crv_to_move: geo.Curve, vec: geo.Vector3d) -> geo.Curve:
+def move_crv(crv_to_move, vec):
+    # type: (geo.Curve, geo.Vector3d) -> geo.Curve
     """단일라인 crv를 vec 만큼 이동시킨다."""
     if not crv_to_move:
         return None
@@ -636,7 +648,8 @@ def move_crv(crv_to_move: geo.Curve, vec: geo.Vector3d) -> geo.Curve:
     return crv_moved
 
 
-def get_joined_crv(crvs: List[geo.Curve], tol: float = TOL) -> Optional[geo.Curve]:
+def get_joined_crv(crvs, tol=TOL):
+    # type: (List[geo.Curve], float) -> Optional[geo.Curve]
     """커브들을 조인해서 가능하면 단일 커브를 반환한다."""
     joined = get_joined_crvs(crvs, tol)
     if not joined:
@@ -760,7 +773,8 @@ def _normalize_ghcomp_result(result):
     return [result]
 
 
-def get_union_regions(crvs: List[geo.Curve]) -> List[geo.Curve]:
+def get_union_regions(crvs):
+    # type: (List[geo.Curve]) -> List[geo.Curve]
     """Clipper PolylineBoolean Union을 우선 사용해 결과 영역 커브들을 반환합니다."""
     if not crvs:
         return []
@@ -1086,7 +1100,8 @@ def get_parcels_from_shapes(
     return parcels
 
 
-def classify_parcels(parcels: List[Parcel]) -> Tuple[List[Lot], List[Road]]:
+def classify_parcels(parcels):
+    # type: (List[Parcel]) -> Tuple[List[Lot], List[Road]]
     """Parcel 리스트를 Lot과 Road로 분류"""
     lots = []
     roads = []
@@ -1100,7 +1115,8 @@ def classify_parcels(parcels: List[Parcel]) -> Tuple[List[Lot], List[Road]]:
     return lots, roads
 
 
-def get_area(regions: Union[List[geo.Curve], geo.Curve]) -> float:
+def get_area(regions):
+    # type: (Union[List[geo.Curve], geo.Curve]) -> float
     """영역 커브의 면적을 계산합니다."""
     if not isinstance(regions, list):
         regions = [regions]
@@ -1243,7 +1259,8 @@ class Offset:
         return polyline_offset_result
 
 
-def offset_region_inward(region: geo.Curve, dist: float) -> Optional[geo.Curve]:
+def offset_region_inward(region, dist):
+    # type: (geo.Curve, float) -> Optional[geo.Curve]
     """영역 커브를 안쪽으로 offset 한다.
     Args:
         region: offset할 대상 커브

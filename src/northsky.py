@@ -52,6 +52,7 @@ def create_calculator(
     ratio,
 ):
     # type: (Any, List[Any], float, float, float) -> "NorthSkyCalculator"
+    """NorthSkyCalculator 생성에 필요한 인자를 정규화해 객체를 반환한다."""
     return NorthSkyCalculator(
         target_lot=target_lot,
         neighbor_lots=neighbor_lots,
@@ -79,6 +80,7 @@ class NorthSkyCalculator(object):
         ratio,
     ):
         # type: (Any, List[Any], float, float, float) -> None
+        """계산에 필요한 입력과 상태를 초기화한다."""
         if target_lot is None:
             raise ValueError("target_lot is required.")
         if neighbor_lots is None:
@@ -112,7 +114,7 @@ class NorthSkyCalculator(object):
                 self.neighbor_lot_crvs_without_gong.append(region)
 
         self.base_segments = []  # type: List[geo.Curve]
-        self.buildable_boundary = None  # type: Optional[geo.Curve]s
+        self.buildable_boundary = None  # type: Optional[geo.Curve]
         self.buildable_boundary_raw = None  # type: Optional[geo.Curve]
         self.lot_region_inward = self.lot_region  # type: geo.Curve
         self.qa_has_road20m_exclusion = False
@@ -132,6 +134,7 @@ class NorthSkyCalculator(object):
 
     def compute(self, height=None):
         # type: (Optional[float]) -> None
+        """주어진 높이에서 buildable boundary를 계산한다."""
         if height is not None:
             self.height = float(height)
 
@@ -162,6 +165,7 @@ class NorthSkyCalculator(object):
 
     def get_cutter_breps(self):
         # type: () -> List[geo.Brep]
+        """법규 시각화용 커터 Brep(수직/수평/사선)을 생성한다."""
         h = float(constants.CUTTER_VISUAL_MAX_HEIGHT_M)
         cut_distance = self._get_setback_at_height(h)
         vertical_height = min(h, constants.HEIGHT_LIMIT_M)
@@ -224,12 +228,14 @@ class NorthSkyCalculator(object):
 
     def _get_setback_at_height(self, height):
         # type: (float) -> float
+        """입력 높이에서 적용해야 할 setback 깊이를 반환한다."""
         if height <= constants.HEIGHT_LIMIT_M:
             return 0.0
         return height * self.ratio
 
     def _move_curve_inward(self, crv, distance):
         # type: (geo.Curve, float) -> geo.Curve
+        """노출 반대 방향으로 커브를 distance만큼 평행 이동한다."""
         move_vec = geo.Vector3d(-self.vec_exposure)
         move_vec.Unitize()
         move_vec *= distance
@@ -237,6 +243,7 @@ class NorthSkyCalculator(object):
 
     def _make_cutter_strip(self, base_seg, height):
         # type: (geo.Curve, float) -> Optional[geo.Curve]
+        """base segment와 setback 선으로 차집합용 strip 커브를 만든다."""
         cut_distance = self._get_setback_at_height(height)
         if cut_distance <= constants.TOL:
             return None
@@ -249,6 +256,7 @@ class NorthSkyCalculator(object):
 
     def _get_target_segs(self, boundary, vec, tol=math.radians(1)):
         # type: (geo.Curve, geo.Vector3d, float) -> List[geo.Curve]
+        """경계 세그먼트 중 vec 방향 조건을 만족하는 대상 세그먼트를 추린다."""
         targets = []
         for seg in utils.explode(boundary):
             vec_in = utils.get_inside_perp_vec(seg, boundary)
@@ -346,6 +354,7 @@ class NorthSkyCalculator(object):
 
     def _get_centered_seg(self, crv, seg_exposure, vec):
         # type: (geo.Curve, geo.Curve, geo.Vector3d) -> geo.Curve
+        """노출 세그먼트를 기준 세그먼트 중앙 기준으로 재배치한다."""
         pts = []
         for pt in (seg_exposure.PointAtStart, seg_exposure.PointAtEnd):
             if utils.is_pt_on_crv(pt, crv):
@@ -360,6 +369,7 @@ class NorthSkyCalculator(object):
 
     def _filter_short_segs(self, segs, vec_in):
         # type: (List[geo.Curve], geo.Vector3d) -> List[geo.Curve]
+        """유효 길이 미만 세그먼트를 제거하고 세그먼트를 정리한다."""
         vec_check = geo.Vector3d(vec_in)
         vec_check.Rotate(constants.ANGLE_90_DEGREE, geo.Vector3d.ZAxis)
 
@@ -373,6 +383,7 @@ class NorthSkyCalculator(object):
 
     def _filter_excluded_segs(self, lot_region, seg_base, segs):
         # type: (geo.Curve, geo.Curve, List[geo.Curve]) -> List[geo.Curve]
+        """기준 규칙에 따라 제외해야 할 세그먼트를 걸러낸다."""
         filtered = []
         for seg in segs:
             if utils.is_seg_on_crv(seg, seg_base):
@@ -385,6 +396,7 @@ class NorthSkyCalculator(object):
 
     def _normalize_landuse_code(self, value):
         # type: (Any) -> str
+        """용도지역 코드를 비교 가능한 문자열 형태로 정규화한다."""
         if value is None:
             return ""
         text = str(value).strip()
@@ -394,6 +406,7 @@ class NorthSkyCalculator(object):
 
     def _get_curve_bbox(self, crv):
         # type: (Any) -> Optional[geo.BoundingBox]
+        """커브의 유효한 bounding box를 반환한다."""
         if not crv:
             return None
         try:
@@ -411,6 +424,7 @@ class NorthSkyCalculator(object):
 
     def is_bbox_overlapping(self, bb_a, bb_b):
         # type: (Optional[geo.BoundingBox], Optional[geo.BoundingBox]) -> bool
+        """두 bounding box가 XY 평면에서 겹치는지 판별한다."""
         if not bb_a or not bb_b:
             return False
         return not (
@@ -422,6 +436,7 @@ class NorthSkyCalculator(object):
 
     def _prefilter_neighbor_lots(self, lot_region, neighbor_lots, max_distance):
         # type: (geo.Curve, List[Any], float) -> List[Any]
+        """bbox 기반 거리 조건으로 이웃 필지를 사전 필터링한다."""
         bb_target = self._get_curve_bbox(lot_region)
         if not bb_target:
             return [lot for lot in (neighbor_lots or []) if lot is not None]
@@ -440,6 +455,7 @@ class NorthSkyCalculator(object):
 
     def _is_general_residential_apartment(self, lot):
         # type: (Any) -> bool
+        """일반주거지역 공동주택 필지인지 판별한다."""
         if lot is None:
             return False
         if not bool(getattr(lot, "is_apartment", False)):
@@ -449,6 +465,7 @@ class NorthSkyCalculator(object):
 
     def _get_owner_lot_for_seg(self, seg, candidate_lots):
         # type: (geo.Curve, List[Any]) -> Optional[Any]
+        """세그먼트를 소유한 후보 필지를 찾아 반환한다."""
         for lot in candidate_lots:
             region = lot.region
             if region and utils.is_seg_on_crv(seg, region):
@@ -457,6 +474,7 @@ class NorthSkyCalculator(object):
 
     def _is_road_centerline_case(self, seg_base, seg_exposure, owner_lot):
         # type: (geo.Curve, geo.Curve, Optional[Any]) -> bool
+        """도로 중심선 기준 보정이 필요한 케이스인지 판별한다."""
         if not self._is_general_residential_apartment(owner_lot):
             return False
 
@@ -471,6 +489,7 @@ class NorthSkyCalculator(object):
 
     def _get_gap_distance_from_base(self, seg_base, seg_exposure):
         # type: (geo.Curve, geo.Curve) -> float
+        """노출 세그먼트와 기준 세그먼트 사이 거리를 계산한다."""
         vec_back = geo.Vector3d(self.vec_exposure)
         vec_back.Reverse()
         pt_mid = seg_exposure.PointAtNormalizedLength(0.5)
@@ -481,6 +500,7 @@ class NorthSkyCalculator(object):
 
     def _compute_base_segments(self, lot_region, neighbor_lots):
         # type: (geo.Curve, List[Any]) -> List[geo.Curve]
+        """법규/예외 규칙을 반영한 최종 기준 세그먼트 집합을 계산한다."""
         neighbor_lot_crvs_without_gong = [
             lot.region for lot in (neighbor_lots or []) if lot.region
         ]
@@ -548,6 +568,7 @@ class NorthSkyCalculator(object):
 
     def _compute_buildable_boundary(self, region, base_segments, height):
         # type: (geo.Curve, List[geo.Curve], float) -> Optional[geo.Curve]
+        """기준 세그먼트 커터를 차집합해 buildable boundary를 계산한다."""
         if not region:
             return None
         if not base_segments:

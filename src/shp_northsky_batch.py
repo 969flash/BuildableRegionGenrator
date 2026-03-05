@@ -39,6 +39,7 @@ MAX_FLOOR = 7
 
 
 def _normalize_landuse_code(value):
+    """용도지역 코드를 비교 가능한 문자열로 정규화한다."""
     if value is None:
         return ""
     text = str(value).strip()
@@ -212,6 +213,7 @@ def _compute_allowable_rows(shp_path, include_counter=False):
 
 
 def _save_qa_csv(path, headers, rows):
+    """QA 결과를 지정 컬럼으로 CSV 파일에 저장한다."""
     with open(path, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.DictWriter(f, fieldnames=headers)
         writer.writeheader()
@@ -220,6 +222,7 @@ def _save_qa_csv(path, headers, rows):
 
 
 def _save_qa_reports(shp_path, qa_data):
+    """QA 보조 리포트 파일들을 생성하고 저장 경로를 반환한다."""
     base_dir = os.path.dirname(os.path.abspath(shp_path))
     qa_dir = os.path.join(base_dir, "qa")
     if not os.path.isdir(qa_dir):
