@@ -66,7 +66,9 @@ def _resolve_shp_path(shp_dir):
     return shp_files[0]
 
 
-def _compute_allowable_rows(shp_path, include_counter=False, target_lot_limit=None):
+def _compute_allowable_rows(
+    shp_path, include_counter=False, target_lot_limit=None, setback_type=None
+):
     """대상 SHP에 대해 층별 허용면적 테이블(row dict 리스트) 생성."""
     repo = shp_to_lot.LotRepository(shp_path)
     lots, roads = repo.lots, repo.roads
@@ -173,7 +175,10 @@ def _compute_allowable_rows(shp_path, include_counter=False, target_lot_limit=No
         for floor in range(1, MAX_FLOOR + 1):
             height_m = FLOOR_HEIGHT_M * floor
             try:
-                calc.compute(height=height_m)
+                calc.compute(
+                    height=height_m,
+                    type=setback_type,
+                )
             except Exception:
                 warning_pnus.add(str(getattr(lot, "pnu", "")))
                 break
@@ -216,7 +221,7 @@ def _save_qa_csv(path, headers, rows):
             writer.writerow(row)
 
 
-def _save_qa_reports(shp_path, qa_data):
+def _save_qa_reports(shp_path, qa_data, setback_type):
     """QA 보조 리포트 파일들을 생성하고 저장 경로를 반환한다."""
     base_dir = os.path.dirname(os.path.abspath(shp_path))
     qa_dir = os.path.join(base_dir, "qa")
@@ -225,15 +230,18 @@ def _save_qa_reports(shp_path, qa_data):
 
     stem = os.path.splitext(os.path.basename(shp_path))[0]
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    mode_tag = "type{}".format(int(setback_type))
 
     warning_path = os.path.join(
-        qa_dir, "{}_qa_warning_pnu_{}.csv".format(stem, timestamp)
+        qa_dir, "{}_{}_qa_warning_pnu_{}.csv".format(stem, mode_tag, timestamp)
     )
     road20m_path = os.path.join(
-        qa_dir, "{}_qa_road20m_exclusion_{}.csv".format(stem, timestamp)
+        qa_dir,
+        "{}_{}_qa_road20m_exclusion_{}.csv".format(stem, mode_tag, timestamp),
     )
     centerline_path = os.path.join(
-        qa_dir, "{}_qa_apartment_centerline_{}.csv".format(stem, timestamp)
+        qa_dir,
+        "{}_{}_qa_apartment_centerline_{}.csv".format(stem, mode_tag, timestamp),
     )
 
     warning_rows = [{"pnu": p} for p in qa_data.get("warning_pnus", [])]
@@ -294,8 +302,12 @@ def _save_csv(rows, shp_path):
 if __name__ == "__main__":
     shp_dir = globals().get("shp_dir")
     target_lot_limit = globals().get("target_lot_limit")
+    setback_type = globals().get("setback_type")
     if not shp_dir and len(sys.argv) > 1:
         shp_dir = sys.argv[1]
+
+    if setback_type is None:
+        raise ValueError("type is required.")
 
     shp_path = _resolve_shp_path(shp_dir)
     rows, lot_count, road_count, target_count, landuse_counter, qa_data = (
@@ -303,10 +315,11 @@ if __name__ == "__main__":
             shp_path,
             include_counter=True,
             target_lot_limit=target_lot_limit,
+            setback_type=setback_type,
         )
     )
     output_csv_path = _save_csv(rows, shp_path)
-    qa_paths = _save_qa_reports(shp_path, qa_data)
+    qa_paths = _save_qa_reports(shp_path, qa_data, setback_type)
 
     print("SHP: {}".format(shp_path))
     if target_lot_limit is None:

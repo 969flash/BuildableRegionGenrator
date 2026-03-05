@@ -129,16 +129,22 @@ class NorthSkyCalculator(object):
                 self.lot_region, constants.PARCEL_INWARD_OFFSET_M
             )
 
-    def compute(self, height=None):
-        # type: (Optional[float]) -> None
+    def compute(self, height=None, type=None):
+        # type: (Optional[float], Optional[int]) -> None
         """주어진 높이에서 buildable boundary를 계산한다."""
         if height is not None:
             self.height = float(height)
+
+        if type is None:
+            raise ValueError("type is required. (1 or 2)")
+
+        calc_type = int(type)
 
         self.buildable_boundary_raw = self._compute_buildable_boundary(
             region=self.lot_region,
             base_segments=self.base_segments,
             height=self.height,
+            setback_type=calc_type,
         )
         print(
             "[compute] buildable_boundary_raw: {}".format(self.buildable_boundary_raw)
@@ -160,11 +166,11 @@ class NorthSkyCalculator(object):
 
         print("[compute] buildable_boundary: {}".format(self.buildable_boundary))
 
-    def get_cutter_breps(self):
-        # type: () -> List[geo.Brep]
+    def get_cutter_breps(self, setback_type=None):
+        # type: (Optional[int]) -> List[geo.Brep]
         """법규 시각화용 커터 Brep(수직/수평/사선)을 생성한다."""
         h = float(constants.CUTTER_VISUAL_MAX_HEIGHT_M)
-        cut_distance = self._get_setback_at_height(h)
+        cut_distance = self._get_setback_at_height(h, setback_type)
         vertical_height = min(h, constants.HEIGHT_LIMIT_M)
 
         breps = []
@@ -192,7 +198,8 @@ class NorthSkyCalculator(object):
                 base_seg, geo.Vector3d(0.0, 0.0, constants.HEIGHT_LIMIT_M)
             )
             seg_limit_inset = self._move_curve_inward(
-                seg_limit, constants.HEIGHT_LIMIT_M * self.ratio
+                seg_limit,
+                self._get_setback_at_height(constants.HEIGHT_LIMIT_M, setback_type),
             )
             seg_top = utils.move_crv(base_seg, geo.Vector3d(0.0, 0.0, h))
             seg_top_inset = self._move_curve_inward(seg_top, cut_distance)
@@ -221,12 +228,26 @@ class NorthSkyCalculator(object):
 
         return breps
 
-    def _get_setback_at_height(self, height):
-        # type: (float) -> float
+    def _get_setback_at_height(self, height, setback_type):
+        # type: (float, int) -> float
         """입력 높이에서 적용해야 할 setback 깊이를 반환한다."""
-        if height <= constants.HEIGHT_LIMIT_M:
-            return 0.0
-        return height * self.ratio
+        mode = int(setback_type)
+
+        if mode == 1:
+            # 현행 법규 적용 방식: 10m 이하 구간은 이격 1.5M, 10m 초과 구간은 높이에 비례한 이격 적용
+            if height <= constants.HEIGHT_LIMIT_M:
+                return float(constants.UNDER_10M_BUILDABLE_DEPTH_M)
+            return float(height) * self.ratio
+
+        if mode == 2:
+            # 입법 예고 방안 방식: 10m 이하 구간은 이격 1.5M, 10~17m 구간은 고정 5m 이격, 17m 초과 구간은 높이에 비례한 이격 적용
+            if height <= constants.HEIGHT_LIMIT_M:
+                return float(constants.UNDER_10M_BUILDABLE_DEPTH_M)
+            if height <= constants.SETBACK_TYPE2_FIXED_MAX_HEIGHT_M:
+                return float(constants.SETBACK_TYPE2_FIXED_DEPTH_M)
+            return float(height) * self.ratio
+
+        raise ValueError("Unsupported setback_type: {}".format(setback_type))
 
     def _move_curve_inward(self, crv, distance):
         # type: (geo.Curve, float) -> geo.Curve
@@ -236,13 +257,22 @@ class NorthSkyCalculator(object):
         move_vec *= distance
         return utils.move_crv(crv, move_vec)
 
-    def _make_cutter_strip(self, base_seg, height):
-        # type: (geo.Curve, float) -> Optional[geo.Curve]
+    def _make_cutter_strip(
+        self,
+        base_seg,
+        height,
+        setback_type,
+    ):
+        # type: (geo.Curve, float, int) -> Optional[geo.Curve]
         """base segment와 setback 선으로 차집합용 strip 커브를 만든다."""
-        cut_distance = self._get_setback_at_height(height)
+        cut_distance = self._get_setback_at_height(height, setback_type)
         if cut_distance <= constants.TOL:
             return None
-
+        print(
+            "[_make_cutter_strip] height: {}, cut_distance: {}".format(
+                height, cut_distance
+            )
+        )
         moved = self._move_curve_inward(base_seg, cut_distance)
         strip = utils.make_closed_crv_from_crv_crv(base_seg, moved)
         if not strip or not strip.IsValid:
@@ -537,8 +567,14 @@ class NorthSkyCalculator(object):
 
         return filtered_segs
 
-    def _compute_buildable_boundary(self, region, base_segments, height):
-        # type: (geo.Curve, List[geo.Curve], float) -> Optional[geo.Curve]
+    def _compute_buildable_boundary(
+        self,
+        region,
+        base_segments,
+        height,
+        setback_type,
+    ):
+        # type: (geo.Curve, List[geo.Curve], float, int) -> Optional[geo.Curve]
         """기준 세그먼트 커터를 차집합해 buildable boundary를 계산한다."""
         if not region:
             return None
@@ -547,7 +583,7 @@ class NorthSkyCalculator(object):
 
         cutters = []
         for base_seg in base_segments:
-            strip = self._make_cutter_strip(base_seg, height)
+            strip = self._make_cutter_strip(base_seg, height, setback_type)
             if strip:
                 cutters.append(strip)
 

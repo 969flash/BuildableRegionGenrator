@@ -31,6 +31,10 @@ PARCEL_INWARD_OFFSET_M = 1.0
 UNDER_10M_BUILDABLE_DEPTH_M = 1.5
 # 높이 규칙 분기 기준 높이(m)
 HEIGHT_LIMIT_M = 10.0
+# 방식 2에서 고정 셋백을 적용하는 상한 높이(m)
+SETBACK_TYPE2_FIXED_MAX_HEIGHT_M = 17.0
+# 방식 2에서 10~17m 구간에 적용하는 고정 셋백 깊이(m)
+SETBACK_TYPE2_FIXED_DEPTH_M = 5.0
 # 사선 커터 Brep 시각화 최대 높이(m)
 CUTTER_VISUAL_MAX_HEIGHT_M = 50.0
 
