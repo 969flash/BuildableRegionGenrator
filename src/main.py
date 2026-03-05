@@ -6,16 +6,14 @@
 GH Inputs (권장):
 - target_lot: utils.Lot
 - other_lots: List[utils.Lot]
-- vec_exposure: geo.Vector3d (기본: (0,1,0))
-- max_distance: float (기본: 20.0)
+- height: float (필수)
+- debug: bool (기본 True)
 
 GH Outputs (권장):
 - northsky_base_segments: List[geo.Curve]
 - northsky_buildable_boundary: Optional[geo.Curve]
 - northsky_calculator: northsky.NorthSkyCalculator
 """
-
-import Rhino.Geometry as geo  # type: ignore
 
 try:
     from . import northsky, constants  # type: ignore
@@ -37,14 +35,10 @@ if __name__ == "__main__":
     target_lot = globals().get("target_lot")
     other_lots = globals().get("other_lots")
 
-    vec_exposure = globals().get("vec_exposure") or geo.Vector3d(
-        constants.DEFAULT_VEC_EXPOSURE_X,
-        constants.DEFAULT_VEC_EXPOSURE_Y,
-        constants.DEFAULT_VEC_EXPOSURE_Z,
-    )
-    max_distance = globals().get("max_distance", 20.0)
-    height = globals().get("height", constants.DEFAULT_HEIGHT_M)
-    ratio = globals().get("ratio", constants.DEFAULT_RATIO)
+    height = globals().get("height")
+
+    max_distance = constants.PREFILTER_DISTANCE_M
+    ratio = constants.DEFAULT_RATIO
 
     if debug:
         target_pnu = ""
@@ -60,8 +54,12 @@ if __name__ == "__main__":
             )
         )
 
-    if target_lot is None or other_lots is None:
-        raise ValueError("target_lot and other_lots are required inputs.")
+    if target_lot is None:
+        raise ValueError("target_lot is required.")
+    if other_lots is None:
+        raise ValueError("other_lots is required.")
+    if height is None:
+        raise ValueError("height is required.")
 
     northsky_base_segments = None
     northsky_buildable_boundary = None
@@ -70,7 +68,6 @@ if __name__ == "__main__":
     northsky_calculator = northsky.create_calculator(
         target_lot=target_lot,
         neighbor_lots=other_lots,
-        vec_exposure=vec_exposure,
         max_distance=max_distance,
         height=height,
         ratio=ratio,

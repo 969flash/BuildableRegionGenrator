@@ -48,24 +48,13 @@ def create_calculator(
     target_lot,
     neighbor_lots,
     max_distance,
-    vec_exposure=None,
-    height=constants.DEFAULT_HEIGHT_M,
-    ratio=constants.DEFAULT_RATIO,
+    height,
+    ratio,
 ):
-    # type: (Any, List[Any], float, Optional[geo.Vector3d], float, float) -> "NorthSkyCalculator"
-    vec = (
-        vec_exposure
-        if vec_exposure is not None
-        else geo.Vector3d(
-            constants.DEFAULT_VEC_EXPOSURE_X,
-            constants.DEFAULT_VEC_EXPOSURE_Y,
-            constants.DEFAULT_VEC_EXPOSURE_Z,
-        )
-    )
+    # type: (Any, List[Any], float, float, float) -> "NorthSkyCalculator"
     return NorthSkyCalculator(
         target_lot=target_lot,
         neighbor_lots=neighbor_lots,
-        vec_exposure=geo.Vector3d(vec),
         max_distance=float(max_distance),
         height=float(height),
         ratio=float(ratio),
@@ -85,22 +74,26 @@ class NorthSkyCalculator(object):
         self,
         target_lot,
         neighbor_lots,
-        vec_exposure,
         max_distance,
         height,
         ratio,
     ):
-        # type: (Any, List[Any], geo.Vector3d, float, float, float) -> None
+        # type: (Any, List[Any], float, float, float) -> None
+        if target_lot is None:
+            raise ValueError("target_lot is required.")
+        if neighbor_lots is None:
+            raise ValueError("neighbor_lots is required.")
+
         self.target_lot = target_lot
-        self.neighbor_lots = list(neighbor_lots or [])
+        self.neighbor_lots = list(neighbor_lots)
 
-        self.lot_region = (
-            target_lot.region
-            if hasattr(target_lot, "region") and target_lot.region is not None
-            else target_lot
+        self.lot_region = target_lot.region
+
+        self.vec_exposure = geo.Vector3d(
+            constants.DEFAULT_VEC_EXPOSURE_X,
+            constants.DEFAULT_VEC_EXPOSURE_Y,
+            constants.DEFAULT_VEC_EXPOSURE_Z,
         )
-
-        self.vec_exposure = geo.Vector3d(vec_exposure)
         self.max_distance = float(max_distance)
 
         self.height = float(height)
@@ -114,7 +107,7 @@ class NorthSkyCalculator(object):
 
         self.neighbor_lot_crvs_without_gong = []
         for lot in self.neighbor_lots:
-            region = lot.region if hasattr(lot, "region") else lot
+            region = lot.region
             if region:
                 self.neighbor_lot_crvs_without_gong.append(region)
 
@@ -352,7 +345,7 @@ class NorthSkyCalculator(object):
 
         filtered = []
         for lot in neighbor_lots or []:
-            region = lot.region if hasattr(lot, "region") else lot
+            region = lot.region
             bb = self._get_curve_bbox(region)
             if self.is_bbox_overlapping(bb_query, bb):
                 filtered.append(lot)
@@ -370,7 +363,7 @@ class NorthSkyCalculator(object):
     def _get_owner_lot_for_seg(self, seg, candidate_lots):
         # type: (geo.Curve, List[Any]) -> Optional[Any]
         for lot in candidate_lots:
-            region = lot.region if hasattr(lot, "region") else lot
+            region = lot.region
             if region and utils.is_seg_on_crv(seg, region):
                 return lot
         return None
@@ -402,9 +395,7 @@ class NorthSkyCalculator(object):
     def _compute_base_segments(self, lot_region, neighbor_lots):
         # type: (geo.Curve, List[Any]) -> List[geo.Curve]
         neighbor_lot_crvs_without_gong = [
-            lot.region if hasattr(lot, "region") else lot
-            for lot in (neighbor_lots or [])
-            if (lot.region if hasattr(lot, "region") else lot)
+            lot.region for lot in (neighbor_lots or []) if lot.region
         ]
 
         crvs_check = list(neighbor_lot_crvs_without_gong) + [lot_region]

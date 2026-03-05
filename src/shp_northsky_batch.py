@@ -103,11 +103,6 @@ def _compute_allowable_rows(shp_path, include_counter=False):
             calc = northsky.create_calculator(
                 target_lot=lot,
                 neighbor_lots=other_lots,
-                vec_exposure=geo.Vector3d(
-                    constants.DEFAULT_VEC_EXPOSURE_X,
-                    constants.DEFAULT_VEC_EXPOSURE_Y,
-                    constants.DEFAULT_VEC_EXPOSURE_Z,
-                ),
                 max_distance=total_height,
                 height=FLOOR_HEIGHT_M,
                 ratio=constants.DEFAULT_RATIO,
