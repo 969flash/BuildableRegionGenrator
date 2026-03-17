@@ -520,6 +520,20 @@ class NorthSkyCalculator(object):
             region = lot.region
             if region and utils.is_seg_on_crv(seg, region):
                 return lot
+
+        best_lot = None
+        best_overlap = 0.0
+        for lot in candidate_lots:
+            region = lot.region
+            if not region:
+                continue
+            overlap_len = utils.get_overlapped_length(seg, region)
+            if overlap_len > best_overlap:
+                best_overlap = overlap_len
+                best_lot = lot
+
+        if best_overlap > constants.TOL:
+            return best_lot
         return None
 
     def _is_road_centerline_case(self, seg_base, seg_exposure, owner_lot):

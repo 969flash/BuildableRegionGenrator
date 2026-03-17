@@ -22,7 +22,7 @@ ANGLE_90_DEGREE = math.pi / 2.0
 PREFILTER_DISTANCE_M = 300.0
 
 # 일반주거지역 코드 집합(배치 대상 필터)
-RESIDENTIAL_GENERAL_CODES = {"13", "14", "15"}
+RESIDENTIAL_GENERAL_CODES = {"13", "14", "15", "17"}
 # 비일조권 용도지역일 때 도로 제외 판단 거리 기준(m)
 ROAD_EXCLUSION_DISTANCE_M = 20.0
 # 대상 필지 내부 옵셋 거리(m)
