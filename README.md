@@ -297,4 +297,4 @@ Fig. 4 — Automated output vs hand-calculated reference (Current scenario, 3 re
 
 ## Acknowledgments
 
-This research was conducted at the **[LAUS (Lab. for Architectural & Urban Space)]([https://laus.snu.ac.kr/])**, Department of Architecture and Architectural Engineering, **Seoul National University**, under the supervision of Prof. Bumjun Kang.
+This research was conducted at the **[LAUS (Lab. for Architectural & Urban Space)](https://laus.snu.ac.kr/)**, Department of Architecture and Architectural Engineering, **Seoul National University**, under the supervision of Prof. Bumjun Kang.
