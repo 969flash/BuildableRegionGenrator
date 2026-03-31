@@ -36,7 +36,7 @@ SETBACK_TYPE2_FIXED_MAX_HEIGHT_M = 17.0
 # 방식 2에서 10~17m 구간에 적용하는 고정 셋백 깊이(m)
 SETBACK_TYPE2_FIXED_DEPTH_M = 5.0
 # 사선 커터 Brep 시각화 최대 높이(m)
-CUTTER_VISUAL_MAX_HEIGHT_M = 50.0
+CUTTER_VISUAL_MAX_HEIGHT_M = 27.0
 
 # 기본 노출 방향벡터 X 성분
 DEFAULT_VEC_EXPOSURE_X = 0.0
