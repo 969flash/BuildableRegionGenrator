@@ -7,7 +7,20 @@
 """
 
 import os
+import sys
 from typing import List, Optional
+
+# GH 환경: .gh 파일 위치 기준으로 setback_sim 경로를 sys.path에 추가
+try:
+    _ghenv = globals().get("ghenv")
+    if _ghenv is not None:
+        _gh_file = _ghenv.Component.OnPingDocument().FilePath
+        if _gh_file:
+            _d = os.path.dirname(os.path.abspath(_gh_file))
+            if os.path.isdir(_d) and _d not in sys.path:
+                sys.path.insert(0, _d)
+except Exception:
+    pass
 
 import Rhino.Geometry as geo  # type: ignore
 

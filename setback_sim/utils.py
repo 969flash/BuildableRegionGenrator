@@ -508,6 +508,10 @@ def get_overlapped_curves(
     if not shatter_result:
         return []
 
+    # ghcomp.Shatter는 결과가 1개일 때 단일 Curve 객체를 반환할 수 있다.
+    if isinstance(shatter_result, geo.Curve):
+        shatter_result = [shatter_result]
+
     overlapped_segments = [seg for seg in shatter_result if is_seg_on_crv(seg, curve_b)]
     if not overlapped_segments:
         return []

@@ -38,6 +38,75 @@ SETBACK_TYPE2_FIXED_DEPTH_M = 5.0
 # 사선 커터 Brep 시각화 최대 높이(m)
 CUTTER_VISUAL_MAX_HEIGHT_M = 27.0
 
+# 시나리오별 파라미터 정의
+# setback_type(int) -> dict
+#   label          : 시나리오 명칭 (A~F)
+#   description    : 설명
+#   low_threshold  : 저층 구간 상한 높이(m) — 항상 10.0
+#   low_setback    : 저층 구간 고정 이격(m)
+#   mid_threshold  : 중간 구간 상한 높이(m) — None이면 중간 구간 없음
+#   mid_setback    : 중간 구간 고정 이격(m)
+#   slope_ratio    : 사선 비율 (height × slope_ratio)
+SCENARIO_PARAMS = {
+    1: {
+        "label": "A",
+        "description": "현행 (건축법 시행령 제86조, ≤10m: 1.5m, >10m: h×0.5)",
+        "low_threshold": 10.0,
+        "low_setback": 1.5,
+        "mid_threshold": None,
+        "mid_setback": None,
+        "slope_ratio": 0.5,
+    },
+    2: {
+        "label": "B",
+        "description": "개정안 (기준 높이 17m 완화, ≤10m: 1.5m, 10~17m: 5.0m, >17m: h×0.5)",
+        "low_threshold": 10.0,
+        "low_setback": 1.5,
+        "mid_threshold": 17.0,
+        "mid_setback": 5.0,
+        "slope_ratio": 0.5,
+    },
+    3: {
+        "label": "C",
+        "description": "가상 시나리오 C (기준 높이 14m, ≤10m: 1.5m, 10~14m: 5.0m, >14m: h×0.5)",
+        "low_threshold": 10.0,
+        "low_setback": 1.5,
+        "mid_threshold": 14.0,
+        "mid_setback": 5.0,
+        "slope_ratio": 0.5,
+    },
+    4: {
+        "label": "D",
+        "description": "가상 시나리오 D (기준 높이 20m, ≤10m: 1.5m, 10~20m: 5.0m, >20m: h×0.5)",
+        "low_threshold": 10.0,
+        "low_setback": 1.5,
+        "mid_threshold": 20.0,
+        "mid_setback": 5.0,
+        "slope_ratio": 0.5,
+    },
+    5: {
+        "label": "E",
+        "description": "가상 시나리오 E (고정 이격 2.0m, ≤10m: 2.0m, 10~17m: 5.0m, >17m: h×0.5)",
+        "low_threshold": 10.0,
+        "low_setback": 2.0,
+        "mid_threshold": 17.0,
+        "mid_setback": 5.0,
+        "slope_ratio": 0.5,
+    },
+    6: {
+        "label": "F",
+        "description": "가상 시나리오 F (사선 비율 h×0.4, ≤10m: 1.5m, 10~17m: 5.0m, >17m: h×0.4)",
+        "low_threshold": 10.0,
+        "low_setback": 1.5,
+        "mid_threshold": 17.0,
+        "mid_setback": 5.0,
+        "slope_ratio": 0.4,
+    },
+}
+
+# setback_type -> 시나리오 라벨 (A~F) 빠른 참조
+SCENARIO_LABELS = {k: v["label"] for k, v in SCENARIO_PARAMS.items()}
+
 # 기본 노출 방향벡터 X 성분
 DEFAULT_VEC_EXPOSURE_X = 0.0
 # 기본 노출 방향벡터 Y 성분(정북)

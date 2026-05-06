@@ -10,7 +10,6 @@ import itertools
 import math
 
 import Rhino.Geometry as geo  # type: ignore
-import scriptcontext as sc  # type: ignore
 
 try:
     from . import utils  # type: ignore
@@ -136,7 +135,9 @@ class NorthSkyCalculator(object):
             self.height = float(height)
 
         if type is None:
-            raise ValueError("type is required. (1 or 2)")
+            raise ValueError(
+                "type is required. (1=A현행, 2=B개정안, 3=C, 4=D, 5=E, 6=F)"
+            )
 
         calc_type = int(type)
 
@@ -162,9 +163,17 @@ class NorthSkyCalculator(object):
         # type: (int) -> List[geo.Brep]
         """법규 시각화용 커터 Brep(수직/수평/사선)을 생성한다."""
         mode = int(setback_type)
+        params = constants.SCENARIO_PARAMS.get(mode)
+        if params is None:
+            raise ValueError("Unsupported setback_type: {}".format(setback_type))
+
         h = float(constants.CUTTER_VISUAL_MAX_HEIGHT_M)
         cut_distance = self._get_setback_at_height(h, mode)
         vertical_height = min(h, constants.HEIGHT_LIMIT_M)
+
+        mid_threshold = params["mid_threshold"]
+        has_mid_tier = mid_threshold is not None
+        slope_ratio = float(params["slope_ratio"])
 
         breps = []
         for base_seg in self.base_segments:
@@ -204,8 +213,8 @@ class NorthSkyCalculator(object):
                         if brep and brep.IsValid:
                             breps.append(brep)
 
-            if mode == 2 and h > constants.SETBACK_TYPE2_FIXED_MAX_HEIGHT_M:
-                fixed_h = float(constants.SETBACK_TYPE2_FIXED_MAX_HEIGHT_M)
+            if has_mid_tier and h > float(mid_threshold):
+                fixed_h = float(mid_threshold)
                 fixed_distance = self._get_setback_at_height(fixed_h, mode)
 
                 seg_limit_fixed_inset = self._move_curve_inward(
@@ -236,7 +245,7 @@ class NorthSkyCalculator(object):
                         if brep and brep.IsValid:
                             breps.append(brep)
 
-                fixed_post_distance = float(fixed_h) * self.ratio
+                fixed_post_distance = fixed_h * slope_ratio
                 seg_fixed_post_inset = self._move_curve_inward(
                     seg_fixed, fixed_post_distance
                 )
@@ -281,24 +290,29 @@ class NorthSkyCalculator(object):
 
     def _get_setback_at_height(self, height, setback_type):
         # type: (float, int) -> float
-        """입력 높이에서 적용해야 할 setback 깊이를 반환한다."""
+        """입력 높이에서 적용해야 할 setback 깊이를 반환한다.
+
+        SCENARIO_PARAMS에 정의된 시나리오 파라미터를 사용:
+          - setback_type 1 (A): 현행 법규
+          - setback_type 2 (B): 개정안 (기준 높이 17m)
+          - setback_type 3 (C): 가상 시나리오 (기준 높이 14m)
+          - setback_type 4 (D): 가상 시나리오 (기준 높이 20m)
+          - setback_type 5 (E): 가상 시나리오 (저층 이격 2.0m)
+          - setback_type 6 (F): 가상 시나리오 (사선 비율 h×0.4)
+        """
         mode = int(setback_type)
+        params = constants.SCENARIO_PARAMS.get(mode)
+        if params is None:
+            raise ValueError("Unsupported setback_type: {}".format(setback_type))
 
-        if mode == 1:
-            # 현행 법규 적용 방식: 10m 이하 구간은 이격 1.5M, 10m 초과 구간은 높이에 비례한 이격 적용
-            if height <= constants.HEIGHT_LIMIT_M:
-                return float(constants.UNDER_10M_BUILDABLE_DEPTH_M)
-            return float(height) * self.ratio
+        if height <= float(params["low_threshold"]):
+            return float(params["low_setback"])
 
-        if mode == 2:
-            # 입법 예고 방안 방식: 10m 이하 구간은 이격 1.5M, 10~17m 구간은 고정 5m 이격, 17m 초과 구간은 높이에 비례한 이격 적용
-            if height <= constants.HEIGHT_LIMIT_M:
-                return float(constants.UNDER_10M_BUILDABLE_DEPTH_M)
-            if height <= constants.SETBACK_TYPE2_FIXED_MAX_HEIGHT_M:
-                return float(constants.SETBACK_TYPE2_FIXED_DEPTH_M)
-            return float(height) * self.ratio
+        mid_threshold = params["mid_threshold"]
+        if mid_threshold is not None and height <= float(mid_threshold):
+            return float(params["mid_setback"])
 
-        raise ValueError("Unsupported setback_type: {}".format(setback_type))
+        return float(height) * float(params["slope_ratio"])
 
     def _move_curve_inward(self, crv, distance):
         # type: (geo.Curve, float) -> geo.Curve
@@ -572,7 +586,6 @@ class NorthSkyCalculator(object):
         crvs_check = list(neighbor_lot_crvs_without_gong) + [lot_region]
         target_segs = self._get_target_segs(lot_region, -self.vec_exposure)
 
-        sc.sticky["t1"] = target_segs
         # base_segments 계산 과정에서, 노출 기준선이 lot_region의 경계에 붙어있는 경우는 제외한다.
         result_bases = []  # type: List[geo.Curve]
         for seg_base in target_segs:

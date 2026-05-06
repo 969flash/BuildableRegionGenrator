@@ -7,7 +7,13 @@ GH Inputs (권장):
 - target_lot: utils.Lot
 - other_lots: List[utils.Lot]
 - height: float (필수)
-- type: int (1=기존, 2=10~17m 고정 5m)
+- setback_type: int
+    1 = 시나리오 A (현행, ≤10m: 1.5m, >10m: h×0.5)
+    2 = 시나리오 B (개정안, ≤10m: 1.5m, 10~17m: 5.0m, >17m: h×0.5)
+    3 = 시나리오 C (기준 높이 14m, ≤10m: 1.5m, 10~14m: 5.0m, >14m: h×0.5)
+    4 = 시나리오 D (기준 높이 20m, ≤10m: 1.5m, 10~20m: 5.0m, >20m: h×0.5)
+    5 = 시나리오 E (저층 이격 2.0m, ≤10m: 2.0m, 10~17m: 5.0m, >17m: h×0.5)
+    6 = 시나리오 F (사선 비율 h×0.4, ≤10m: 1.5m, 10~17m: 5.0m, >17m: h×0.4)
 - debug: bool (기본 True)
 
 GH Outputs (권장):
@@ -16,6 +22,21 @@ GH Outputs (권장):
 - northsky_cutter_breps: List[geo.Brep]
 - northsky_calculator: northsky.NorthSkyCalculator
 """
+
+import os
+import sys
+
+# GH 환경: .gh 파일 위치 기준으로 setback_sim 경로를 sys.path에 추가
+try:
+    _ghenv = globals().get("ghenv")
+    if _ghenv is not None:
+        _gh_file = _ghenv.Component.OnPingDocument().FilePath
+        if _gh_file:
+            _d = os.path.dirname(os.path.abspath(_gh_file))
+            if os.path.isdir(_d) and _d not in sys.path:
+                sys.path.insert(0, _d)
+except Exception:
+    pass
 
 try:
     from . import northsky, constants  # type: ignore

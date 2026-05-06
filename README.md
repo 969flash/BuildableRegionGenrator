@@ -87,7 +87,7 @@ Fig. — Structured query set (Q0–Q3) covering north-facing setback, setback d
 | `hybrid_bm25_dense` | α·BM25 + (1-α)·Dense |
 | `hybrid_tfidf_dense` | α·TF-IDF + (1-α)·Dense |
 
-Regulation-specific keyword signals (e.g., 제86조, 일조, 정북, 인접대지경계선) trigger score boosting for relevant chunks. Chunking uses a 900-character sliding window with 120-character overlap.
+Regulation-specific keyword signals (e.g., 제86조, 일조, 정북, 인접대지경계선) trigger score boosting for relevant chunks. Chunking uses **structural splitting by article** (`제○조` regex boundaries), so each article maps to exactly one chunk. Deleted articles, addenda, and TOC stubs are filtered out automatically. (A legacy 900-char sliding-window mode is retained for ablation comparison but is not used in the final pipeline.)
 
 ### Evaluation Results (50-query set, top-5 retrieval)
 
