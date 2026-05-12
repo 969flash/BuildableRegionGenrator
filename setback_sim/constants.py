@@ -27,6 +27,9 @@ RESIDENTIAL_GENERAL_CODES = {"13", "14", "15", "17"}
 ROAD_EXCLUSION_DISTANCE_M = 20.0
 # 대상 필지 내부 옵셋 거리(m)
 PARCEL_INWARD_OFFSET_M = 1.0
+# 건축가능영역 단순화 시 사용하는 inward/outward offset 임계치(m).
+# 이 값 이하 두께의 좁은 통로/미세 돌출은 제거된다.
+BUILDABLE_SIMPLIFY_TOL_M = 0.3
 # 10m 미만 높이 구간에서 적용하는 고정 후퇴 깊이(m)
 UNDER_10M_BUILDABLE_DEPTH_M = 1.5
 # 높이 규칙 분기 기준 높이(m)
