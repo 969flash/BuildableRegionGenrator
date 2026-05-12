@@ -585,7 +585,11 @@ def create_parcel_from_shape(
     apt_yn = get_field_value(record, fields, "APT_YN", default="N")
     apt_yn = "" if apt_yn is None else str(apt_yn).strip().upper()
 
-    if jimok == "도로":
+    # jimok=='' 케이스: 외곽+구멍을 가진 도넛 형태의 도로/공유지 parcel이 분류 정보 없이
+    # 들어오는 경우가 있다(예: 강남 SHP의 일부 본번). 현재 알고리즘은 hole_regions를
+    # 사용하지 않으므로 Lot으로 분류되면 거대한 솔리드 polygon처럼 보여 정북사선 계산을
+    # 오염시킨다. 따라서 빈 jimok도 Road로 처리해 lots에서 빼낸다.
+    if jimok == "도로" or not jimok:
         parcel = Road(
             boundary_region,
             pnu,
@@ -1368,3 +1372,46 @@ def offset_region_outward(
     if not isinstance(region, geo.Curve):
         raise ValueError("region must be curve")
     return Offset().polyline_offset(region, dist, miter).contour[0]
+
+
+def simplify_region(region, tol):
+    # type: (geo.Curve, float) -> Optional[geo.Curve]
+    """region을 tol 만큼 inward → outward offset 하여 좁은 통로/미세 돌출을 제거한다.
+
+    morphological opening 과 동일한 동작이며, 다음 두 가지 사항을 보강한다.
+      1) inward 결과가 여러 조각으로 분리되면 면적이 가장 큰 조각만 유지한다.
+      2) outward 단계에서 acute corner의 miter join이 원본 region을 벗어나는
+         것을 막기 위해 miter 한도를 작게(2 * tol) 두고, 최종 결과를 원본 region
+         과 교집합 처리해 어떤 경우에도 원본 영역 바깥으로 새지 않도록 한다.
+
+    단일 객체를 받아 단일 객체를 반환한다. 정리 결과가 사라질 만큼 작은 영역이면
+    None을 반환한다.
+
+    Args:
+        region: 단일 닫힌 영역 커브
+        tol: 정리 임계치(m). 이 값 이하 두께의 돌출/통로는 제거된다.
+
+    Returns:
+        정리된 단일 영역 커브, 또는 None.
+    """
+    if not region or not region.IsClosed:
+        return None
+    if tol is None or tol <= TOL:
+        return region
+
+    # 1) inward offset — offset_region_inward 가 이미 가장 큰 조각만 골라낸다.
+    eroded = offset_region_inward(region, tol)
+    if not eroded or not eroded.IsClosed:
+        return None
+
+    # 2) outward offset — miter 한도를 작게 두어 acute corner 의 needle 돌출을 사전 차단.
+    dilated = offset_region_outward(eroded, tol, miter=2.0)
+    if not dilated or not dilated.IsClosed:
+        return None
+
+    # 3) 원본과 intersection — 남은 miter overshoot 까지 원본 안쪽으로 클램프.
+    clipped = get_intersection_regions([dilated], [region])
+    if not clipped:
+        return None
+
+    return max(clipped, key=get_area)

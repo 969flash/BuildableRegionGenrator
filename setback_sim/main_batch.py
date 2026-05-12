@@ -15,17 +15,22 @@ GH Outputs:
 - buildable_regions  : List[geo.Curve]. 각 타겟 필지의 0/3/6/9/12/15/18m 측정 높이별
                         건축가능영역 커브를 평탄화한 리스트. 각 커브는 측정 높이만큼
                         Z가 평행이동되어 있어 GH에서 바로 3D 적층 시각화가 가능하다.
+- cutter_breps       : List[geo.Brep]. 각 타겟 필지의 법규 시각화용 사선 cutter Brep
+                        (수직/수평/사선)을 평탄화한 리스트. 측정 높이와 무관하게
+                        `constants.CUTTER_VISUAL_MAX_HEIGHT_M` 기준으로 1회만 산출된다.
 
 내부 변수(필요 시 GH output으로 추가 가능):
 - buildable_regions_2d : List[List[geo.Curve]]. flatten 전 [pnu, height] 이중 리스트.
                           각 행은 측정 높이 수(7개)와 동일 길이를 유지하며,
                           target 미존재 / 계산 실패 / 특정 높이 boundary 없음 시 None.
+- cutter_breps_2d      : List[List[geo.Brep]]. flatten 전 [pnu, brep] 이중 리스트.
+                          target 미존재 / 계산 실패 시 빈 리스트.
 
 성능 메모:
 - LotRepository는 1회만 로드한다. 이후 각 PNU의 이웃 조회는 bbox 캐시가 재사용된다.
 - 한 lot의 base_segments / lot_region_inward는 NorthSkyCalculator 생성 시 1회 계산된다.
   7개 측정 높이는 동일 calculator의 compute()만 반복하므로 setback strip 차집합만
-  높이별로 다시 돈다.
+  높이별로 다시 돈다. cutter_breps도 동일 calculator의 base_segments를 재사용한다.
 """
 
 import os
@@ -65,20 +70,28 @@ importlib.reload(shp_to_lot)
 VISUALIZATION_HEIGHTS_M = (0.0, 3.0, 6.0, 9.0, 12.0, 15.0, 18.0)
 
 
-def compute_buildable_curves_at_heights(
+def compute_lot_visualization(
     target_lot, other_lots, setback_type, heights=VISUALIZATION_HEIGHTS_M
 ):
-    # type: (object, list, int, tuple) -> list
-    """단일 target_lot의 측정 높이별 건축가능영역 커브를 계산한다.
+    # type: (object, list, int, tuple) -> tuple
+    """단일 target_lot의 측정 높이별 건축가능영역 커브 + 법규 사선 cutter Brep을 계산.
 
-    동일 calculator를 7번 compute()해 base_segments / lot_region_inward를
-    재사용한다(성능 핵심). 각 결과 커브는 측정 높이만큼 Z 평행이동된 새 커브.
-    boundary가 없는 높이는 None을 채워 인덱스 정합성을 유지한다.
+    동일 calculator를 재사용해 base_segments / lot_region_inward를 1회만 계산한다
+    (성능 핵심). 높이별 compute()로 buildable curve를 만들고, 마지막에
+    get_cutter_breps()로 시각화용 Brep을 1회 생성한다.
+
+    Returns:
+        (height_curves, cutter_breps)
+        - height_curves : List[Optional[geo.Curve]]. 각 측정 높이의 buildable curve를
+                          해당 높이만큼 Z 평행이동한 결과. boundary가 없으면 None.
+        - cutter_breps  : List[geo.Brep]. 측정 높이와 무관하게 한 번만 생성되는
+                          법규 시각화용 cutter Brep 리스트.
     """
     if not heights:
-        return []
+        return [], []
 
     max_height = max(heights)
+    setback_type_int = int(setback_type)
     calc = northsky.create_calculator(
         target_lot=target_lot,
         neighbor_lots=other_lots,
@@ -89,14 +102,30 @@ def compute_buildable_curves_at_heights(
 
     height_curves = []
     for h in heights:
-        calc.compute(height=float(h), type=int(setback_type))
+        calc.compute(height=float(h), type=setback_type_int)
         boundary = calc.buildable_boundary
+        if boundary is None:
+            height_curves.append(None)
+            continue
+        # XY 평면(이동 전) 상태에서 단순화 — 좁은 통로/미세 돌출 제거.
+        boundary = utils.simplify_region(boundary, constants.BUILDABLE_SIMPLIFY_TOL_M)
         if boundary is None:
             height_curves.append(None)
             continue
         moved = utils.move_crv(boundary, geo.Vector3d(0.0, 0.0, float(h)))
         height_curves.append(moved)
-    return height_curves
+
+    try:
+        cutter_breps = calc.get_cutter_breps(setback_type=setback_type_int)
+    except Exception as exc:
+        print(
+            "[batch] PNU '{}' cutter_breps 생성 실패: {}".format(
+                getattr(target_lot, "pnu", ""), exc
+            )
+        )
+        cutter_breps = []
+
+    return height_curves, cutter_breps
 
 
 def collect_targets_and_neighbors(repo, pnu_list):
@@ -143,7 +172,9 @@ def run_batch(shp_path, pnu_list, setback_type, heights=VISUALIZATION_HEIGHTS_M)
     """배치 진입점.
 
     Returns:
-        (lot_regions, target_lot_regions, buildable_regions_2d, buildable_regions)
+        (lot_regions, target_lot_regions,
+         buildable_regions_2d, buildable_regions,
+         cutter_breps_2d, cutter_breps)
     """
     if not shp_path:
         raise ValueError("shp_path is required.")
@@ -169,13 +200,15 @@ def run_batch(shp_path, pnu_list, setback_type, heights=VISUALIZATION_HEIGHTS_M)
     ]
 
     buildable_regions_2d = []
+    cutter_breps_2d = []
     for target in target_lots:
         if target is None:
             buildable_regions_2d.append([None] * height_count)
+            cutter_breps_2d.append([])
             continue
         others = other_lots_by_target.get(id(target), [])
         try:
-            curves = compute_buildable_curves_at_heights(
+            curves, breps = compute_lot_visualization(
                 target_lot=target,
                 other_lots=others,
                 setback_type=setback_type_int,
@@ -190,7 +223,9 @@ def run_batch(shp_path, pnu_list, setback_type, heights=VISUALIZATION_HEIGHTS_M)
                 )
             )
             curves = [None] * height_count
+            breps = []
         buildable_regions_2d.append(curves)
+        cutter_breps_2d.append(breps)
 
     buildable_regions = [
         crv
@@ -198,8 +233,21 @@ def run_batch(shp_path, pnu_list, setback_type, heights=VISUALIZATION_HEIGHTS_M)
         for crv in sublist
         if crv is not None
     ]
+    cutter_breps = [
+        brep
+        for sublist in cutter_breps_2d
+        for brep in sublist
+        if brep is not None
+    ]
 
-    return lot_regions, target_lot_regions, buildable_regions_2d, buildable_regions
+    return (
+        lot_regions,
+        target_lot_regions,
+        buildable_regions_2d,
+        buildable_regions,
+        cutter_breps_2d,
+        cutter_breps,
+    )
 
 
 if __name__ == "__main__":
@@ -216,6 +264,8 @@ if __name__ == "__main__":
         target_lot_regions,
         buildable_regions_2d,
         buildable_regions,
+        cutter_breps_2d,
+        cutter_breps,
     ) = run_batch(
         shp_path=shp_path,
         pnu_list=pnu_list,
@@ -225,10 +275,11 @@ if __name__ == "__main__":
     matched = sum(1 for r in target_lot_regions if r is not None)
     print(
         "[batch] PNU 입력 {}, target 매칭 {}, lot_regions {}, "
-        "buildable_regions(flatten) {}".format(
+        "buildable_regions(flatten) {}, cutter_breps(flatten) {}".format(
             len(pnu_list),
             matched,
             len(lot_regions),
             len(buildable_regions),
+            len(cutter_breps),
         )
     )
