@@ -84,10 +84,10 @@
 <script src="https://unpkg.com/pmtiles@4.1.0/dist/pmtiles.js"></script>
 <script>
   // ===== 설정: PMTiles URL =====
-  // 로컬 테스트: 같은 폴더의 파일을 file:// 로는 못 읽음. python3 -m http.server 8000 같은 걸로 띄워야 함
-  // 배포 후: R2 public URL로 교체
-  const PMTILES_URL = "buildable_gangnam.pmtiles";  // 로컬용
-  // const PMTILES_URL = "https://YOUR-R2-BUCKET.r2.cloudflarestorage.com/buildable_seoul.pmtiles";
+  // GitHub Releases (public, free, range request 지원)
+  const PMTILES_URL = "https://github.com/969flash/BuildableRegionGenrator/releases/download/v0.1.0-gangnam/buildable_gangnam.pmtiles";
+  // 로컬 테스트는 같은 폴더 상대경로로:
+  // const PMTILES_URL = "buildable_gangnam.pmtiles";
 
   // ===== PMTiles 프로토콜 등록 =====
   const protocol = new pmtiles.Protocol();
