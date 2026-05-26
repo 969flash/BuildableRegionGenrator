@@ -66,11 +66,19 @@ def _extract_district_code(stem):
     return stem
 
 
-def convert(folder, out_path=None):
+def convert(folder, out_path=None, only_district=None):
+    """결과 SHP들을 GeoJSONL로 변환.
+
+    Args:
+        folder: result_geom 디렉토리
+        out_path: 출력 파일 경로 (없으면 {folder}/buildable_all.geojsonl)
+        only_district: 특정 시군구 코드 ("11680") 또는 stem만 처리. None이면 전체.
+    """
     if not os.path.isdir(folder):
         raise FileNotFoundError(folder)
     if out_path is None:
-        out_path = os.path.join(folder, "buildable_all.geojsonl")
+        suffix = f"_{only_district}" if only_district else "_all"
+        out_path = os.path.join(folder, f"buildable{suffix}.geojsonl")
 
     latest = _select_latest_shps(folder)
     if not latest:
@@ -82,8 +90,18 @@ def convert(folder, out_path=None):
     for (stem, t), fn in latest.items():
         districts[stem][t] = fn
 
+    # 특정 구만 필터링
+    if only_district:
+        districts = {
+            stem: type_map for stem, type_map in districts.items()
+            if _extract_district_code(stem) == only_district or stem == only_district
+        }
+        if not districts:
+            print(f"[{_ts()}] [ERROR] district '{only_district}' 매칭 SHP 없음")
+            return None
+
     n_dist = len(districts)
-    print(f"[{_ts()}] === 변환 시작: {n_dist}개 구, 총 {len(latest)}개 SHP ===")
+    print(f"[{_ts()}] === 변환 시작: {n_dist}개 구, 총 {sum(len(m) for m in districts.values())}개 SHP ===")
     print(f"[{_ts()}] 출력: {out_path}")
 
     total_features = 0
@@ -152,12 +170,13 @@ def convert(folder, out_path=None):
 
 
 def main():
-    if len(sys.argv) < 2:
-        print(__doc__)
-        sys.exit(1)
-    folder = sys.argv[1]
-    out = sys.argv[2] if len(sys.argv) >= 3 else None
-    convert(folder, out)
+    import argparse
+    parser = argparse.ArgumentParser(description="result_geom -> GeoJSONL")
+    parser.add_argument("folder", help="result_geom 디렉토리")
+    parser.add_argument("--output", "-o", default=None, help="출력 파일 (생략시 {folder}/buildable_*.geojsonl)")
+    parser.add_argument("--district", default=None, help="특정 시군구 코드만 처리 (예: 11680)")
+    args = parser.parse_args()
+    convert(args.folder, out_path=args.output, only_district=args.district)
 
 
 if __name__ == "__main__":
