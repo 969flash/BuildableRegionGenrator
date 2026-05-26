@@ -20,8 +20,8 @@ venv/
 # Grasshopper binary
 *.gh
 
-# 로컬 PMTiles (Release로 별도 호스팅됨)
-docs/*.pmtiles
+# 로컬 PMTiles: 크기가 GitHub 100MB/file 제한 안에 들면 docs/에 그대로 두고
+# GitHub Pages로 same-origin 서빙 (CORS 무사). 100MB 초과 시에만 release 또는 분할 사용.
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

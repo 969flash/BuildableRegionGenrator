@@ -84,10 +84,9 @@
 <script src="https://unpkg.com/pmtiles@4.1.0/dist/pmtiles.js"></script>
 <script>
   // ===== 설정: PMTiles URL =====
-  // GitHub Releases (public, free, range request 지원)
-  const PMTILES_URL = "https://github.com/969flash/BuildableRegionGenrator/releases/download/v0.1.0-gangnam/buildable_gangnam.pmtiles";
-  // 로컬 테스트는 같은 폴더 상대경로로:
-  // const PMTILES_URL = "buildable_gangnam.pmtiles";
+  // GitHub Pages same-origin 서빙 (CORS 문제 없음, range request OK)
+  // 100MB 초과 시에만 분할 호스팅 또는 외부 CDN 검토
+  const PMTILES_URL = "./buildable_gangnam.pmtiles";
 
   // ===== PMTiles 프로토콜 등록 =====
   const protocol = new pmtiles.Protocol();
