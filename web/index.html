@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>서울 정북사선 시뮬레이션 3D 맵</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif; }
+  #map { position: absolute; top: 0; bottom: 0; left: 0; right: 0; }
+
+  .panel {
+    position: absolute;
+    z-index: 10;
+    background: rgba(255,255,255,0.95);
+    backdrop-filter: blur(8px);
+    border-radius: 8px;
+    padding: 16px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+    font-size: 13px;
+  }
+  .panel h3 { margin: 0 0 10px 0; font-size: 14px; font-weight: 600; }
+  .panel label { display: block; margin: 8px 0 4px; color: #444; font-weight: 500; }
+  .panel .row { margin: 6px 0; }
+  .panel button {
+    border: 1px solid #ccc; background: #fff; padding: 6px 12px;
+    border-radius: 4px; cursor: pointer; font-size: 13px;
+  }
+  .panel button.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+  .panel input[type="range"] { width: 200px; vertical-align: middle; }
+
+  .controls { top: 16px; left: 16px; min-width: 240px; }
+  .legend { bottom: 16px; right: 16px; }
+  .legend .swatch { display: inline-block; width: 14px; height: 14px; margin-right: 6px; vertical-align: middle; border-radius: 2px; }
+  .info { top: 16px; right: 16px; max-width: 280px; display: none; }
+  .info table { border-collapse: collapse; width: 100%; margin-top: 6px; font-size: 12px; }
+  .info td { padding: 3px 6px; border-bottom: 1px solid #eee; }
+  .info td:first-child { color: #777; }
+
+  .badge { display: inline-block; background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-size: 11px; color: #555; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div class="panel controls">
+  <h3>정북사선 시뮬</h3>
+
+  <div class="row">
+    <label>시나리오</label>
+    <button id="btn-type1" class="active">현행 (Type 1)</button>
+    <button id="btn-type2">제안 (Type 2)</button>
+  </div>
+
+  <div class="row">
+    <label>표시 층: <span id="floor-label">1–7층 전체</span></label>
+    <input type="range" id="floor-slider" min="0" max="7" value="0" />
+    <small style="color:#888">0 = 전체</small>
+  </div>
+
+  <div class="row">
+    <label><input type="checkbox" id="show-parcel" checked /> 필지 외곽선</label>
+  </div>
+</div>
+
+<div class="panel legend">
+  <h3>층별 높이</h3>
+  <div><span class="swatch" style="background:#f7fbff"></span>1층 (0–3m)</div>
+  <div><span class="swatch" style="background:#deebf7"></span>2층 (3–6m)</div>
+  <div><span class="swatch" style="background:#9ecae1"></span>3층 (6–9m)</div>
+  <div><span class="swatch" style="background:#6baed6"></span>4층 (9–12m)</div>
+  <div><span class="swatch" style="background:#3182bd"></span>5층 (12–15m)</div>
+  <div><span class="swatch" style="background:#08519c"></span>6층 (15–18m)</div>
+  <div><span class="swatch" style="background:#08306b"></span>7층 (18–21m)</div>
+</div>
+
+<div class="panel info" id="info">
+  <h3>필지 정보</h3>
+  <table id="info-table"></table>
+</div>
+
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/pmtiles@4.1.0/dist/pmtiles.js"></script>
+<script>
+  // ===== 설정: PMTiles URL =====
+  // 로컬 테스트: 같은 폴더의 파일을 file:// 로는 못 읽음. python3 -m http.server 8000 같은 걸로 띄워야 함
+  // 배포 후: R2 public URL로 교체
+  const PMTILES_URL = "buildable_gangnam.pmtiles";  // 로컬용
+  // const PMTILES_URL = "https://YOUR-R2-BUCKET.r2.cloudflarestorage.com/buildable_seoul.pmtiles";
+
+  // ===== PMTiles 프로토콜 등록 =====
+  const protocol = new pmtiles.Protocol();
+  maplibregl.addProtocol("pmtiles", protocol.tile);
+
+  // ===== 베이스맵: OSM raster (무료) =====
+  const map = new maplibregl.Map({
+    container: "map",
+    style: {
+      version: 8,
+      glyphs: "https://fonts.openmaptiles.org/{fontstack}/{range}.pbf",
+      sources: {
+        osm: {
+          type: "raster",
+          tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+          tileSize: 256,
+          attribution: "© OpenStreetMap contributors",
+          maxzoom: 19,
+        },
+        buildable: {
+          type: "vector",
+          url: "pmtiles://" + PMTILES_URL,
+        },
+      },
+      layers: [
+        { id: "osm", type: "raster", source: "osm" },
+      ],
+    },
+    center: [127.046, 37.502],  // 강남 중심
+    zoom: 14,
+    pitch: 60,
+    bearing: -20,
+    maxPitch: 75,
+  });
+
+  map.addControl(new maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }));
+
+  // ===== 상태 =====
+  let currentType = 1;     // 1 = 현행, 2 = 제안
+  let floorOnly = 0;       // 0 = 전체, 1~7 = 특정 층만
+
+  // ===== buildable 레이어 추가 =====
+  map.on("load", () => {
+    // 층별 색상 (z16, h_base 기준)
+    const floorColor = [
+      "step",
+      ["get", "h_base_m"],
+      "#f7fbff",  // 0 -> 1층 (h_base=0)
+      3,  "#deebf7",  // 3 -> 2층 시작
+      6,  "#9ecae1",  // 6 -> 3층 시작
+      9,  "#6baed6",  // 9 -> 4층
+      12, "#3182bd",  // 12 -> 5층
+      15, "#08519c",  // 15 -> 6층
+      18, "#08306b",  // 18 -> 7층
+    ];
+
+    map.addLayer({
+      id: "buildable-fill",
+      type: "fill-extrusion",
+      source: "buildable",
+      "source-layer": "buildable",
+      paint: {
+        "fill-extrusion-base": ["get", "h_base_m"],
+        "fill-extrusion-height": ["get", "h_top_m"],
+        "fill-extrusion-color": floorColor,
+        "fill-extrusion-opacity": 0.85,
+      },
+    });
+
+    applyFilter();
+  });
+
+  function applyFilter() {
+    if (!map.getLayer("buildable-fill")) return;
+
+    const filters = [["==", ["get", "type"], currentType]];
+    if (floorOnly > 0) {
+      // 해당 floor가 floor_from~floor_to 범위 안에 있는 feature만
+      filters.push(["<=", ["get", "floor_from"], floorOnly]);
+      filters.push([">=", ["get", "floor_to"], floorOnly]);
+    }
+
+    map.setFilter("buildable-fill", ["all", ...filters]);
+  }
+
+  // ===== UI 이벤트 =====
+  document.getElementById("btn-type1").addEventListener("click", (e) => {
+    currentType = 1;
+    document.getElementById("btn-type1").classList.add("active");
+    document.getElementById("btn-type2").classList.remove("active");
+    applyFilter();
+  });
+  document.getElementById("btn-type2").addEventListener("click", (e) => {
+    currentType = 2;
+    document.getElementById("btn-type1").classList.remove("active");
+    document.getElementById("btn-type2").classList.add("active");
+    applyFilter();
+  });
+
+  const slider = document.getElementById("floor-slider");
+  const floorLabel = document.getElementById("floor-label");
+  slider.addEventListener("input", (e) => {
+    floorOnly = parseInt(e.target.value);
+    floorLabel.textContent = floorOnly === 0
+      ? "1–7층 전체"
+      : `${floorOnly}층만 (${(floorOnly-1)*3}–${floorOnly*3}m)`;
+    applyFilter();
+  });
+
+  // ===== 클릭 시 인스펙터 =====
+  map.on("click", "buildable-fill", (e) => {
+    if (!e.features || !e.features[0]) return;
+    const props = e.features[0].properties;
+    const info = document.getElementById("info");
+    const tbl = document.getElementById("info-table");
+    tbl.innerHTML = `
+      <tr><td>PNU</td><td>${props.pnu}</td></tr>
+      <tr><td>층 범위</td><td>${props.floor_from} – ${props.floor_to}층</td></tr>
+      <tr><td>높이</td><td>${props.h_base_m} – ${props.h_top_m} m</td></tr>
+      <tr><td>가용 면적</td><td>${parseFloat(props.area_m2).toFixed(1)} m²</td></tr>
+      <tr><td>용도지역</td><td>${props.zone_cd}</td></tr>
+      <tr><td>시나리오</td><td>${props.type == 1 ? "현행" : "제안"}</td></tr>
+      <tr><td>지역</td><td>${props.district}</td></tr>
+    `;
+    info.style.display = "block";
+  });
+  map.on("mouseenter", "buildable-fill", () => map.getCanvas().style.cursor = "pointer");
+  map.on("mouseleave", "buildable-fill", () => map.getCanvas().style.cursor = "");
+</script>
+</body>
+</html>
