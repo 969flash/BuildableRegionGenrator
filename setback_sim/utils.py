@@ -251,13 +251,24 @@ class Lot(Parcel):
 
 def read_shp_file(file_path):
     # type: (str) -> Tuple[List[Any], List[Any], List[str]]
-    """shapefile을 읽어서 shapes와 records를 반환"""
-    sf = shapefile.Reader(file_path, encoding="utf-8")
+    """shapefile을 읽어서 shapes와 records를 반환.
 
-    shapes = sf.shapes()
-    records = sf.records()
-    fields = [field[0] for field in sf.fields[1:]]
-    return shapes, records, fields
+    인코딩은 utf-8 우선 시도, 실패 시 cp949(한국 표준 토지특성정보)로 fallback.
+    """
+    last_err = None
+    for enc in ("utf-8", "cp949"):
+        try:
+            sf = shapefile.Reader(file_path, encoding=enc)
+            shapes = sf.shapes()
+            records = sf.records()  # 여기서 디코딩 발생
+            fields = [field[0] for field in sf.fields[1:]]
+            return shapes, records, fields
+        except UnicodeDecodeError as e:
+            last_err = e
+            continue
+    raise RuntimeError(
+        "SHP 인코딩 감지 실패 (utf-8/cp949 모두 실패): {} ({})".format(file_path, last_err)
+    )
 
 
 def get_curve_from_points(
@@ -561,9 +572,16 @@ def get_curves_from_shape(
 def get_field_value(
     record: List[Any], fields: List[str], field_name: str, default: str = "Unknown"
 ) -> str:
-    """레코드에서 특정 필드값을 안전하게 추출"""
-    index = fields.index(field_name)
-    return record[index]
+    """레코드에서 특정 필드값을 안전하게 추출.
+
+    필드가 존재하지 않거나 값이 None이면 default 반환.
+    """
+    try:
+        index = fields.index(field_name)
+    except ValueError:
+        return default
+    value = record[index]
+    return default if value is None else value
 
 
 def create_parcel_from_shape(
