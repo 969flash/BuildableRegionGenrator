@@ -21,7 +21,7 @@ venv/
 *.gh
 
 # 로컬 PMTiles (Release로 별도 호스팅됨)
-web/*.pmtiles
+docs/*.pmtiles
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
