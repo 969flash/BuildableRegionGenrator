@@ -410,7 +410,7 @@ Code is released under the MIT License (see `LICENSE`). Output simulation data d
 @article{byun2025explainable,
   title  = {An Explainable Computational Framework for Building Regulation
             Compliance and Setback Simulation in Seoul},
-  author = {Byun, Sanghoon and Park, Dongjun and Kang, Bumjun},
+  author = {Byun, Sanghoon and Park, Dongjun and Kang, bumjoon},
   year   = {2025}
 }
 ```
@@ -423,10 +423,10 @@ Code is released under the MIT License (see `LICENSE`). Output simulation data d
 | --- | --- | --- |
 | Sanghoon Byun | LAUS, Seoul National University | Author |
 | Dongjun Park | LAUS, Seoul National University | Author |
-| Bumjun Kang | LAUS, Seoul National University | Advisor |
+| bumjoon Kang | LAUS, Seoul National University | Advisor |
 
 ---
 
 ## Acknowledgments
 
-This research was conducted at the **[LAUS (Lab. for Architectural & Urban Space)](https://laus.snu.ac.kr/)**, Department of Architecture and Architectural Engineering, **Seoul National University**, under the supervision of Prof. Bumjun Kang.
+This research was conducted at the **[LAUS (Lab. for Architectural & Urban Space)](https://laus.snu.ac.kr/)**, Department of Architecture and Architectural Engineering, **Seoul National University**, under the supervision of Prof. bumjoon Kang.
