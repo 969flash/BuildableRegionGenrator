@@ -155,34 +155,42 @@
   // ===== 상태 =====
   let currentType = 1;     // 1 = 현행, 2 = 제안
   let floorOnly = 0;       // 0 = 전체, 1~7 = 특정 층만
-  const LAYER_IDS = PMTILES_SOURCES.map(({ id }) => `buildable_fill_${id}`);
+  const FLOORS = [1, 2, 3, 4, 5, 6, 7];
+  // 층별 색상 (한 층 = 한 슬라브로 구분되게)
+  const FLOOR_COLORS = {
+    1: "#f7fbff",
+    2: "#deebf7",
+    3: "#9ecae1",
+    4: "#6baed6",
+    5: "#3182bd",
+    6: "#08519c",
+    7: "#08306b",
+  };
+  // 모든 layer id (구 × 층 = 25 × 7 = 175개)
+  const LAYER_IDS = [];
+  PMTILES_SOURCES.forEach(({ id }) => {
+    FLOORS.forEach(f => LAYER_IDS.push(`buildable_${id}_f${f}`));
+  });
 
-  // ===== 모든 PMTiles에 fill-extrusion layer 추가 =====
+  // ===== 모든 PMTiles × 7층 fill-extrusion layer 추가 =====
+  // dedup된 record(예: floor_from=1, floor_to=3)도 층별로 3개 슬라브로 분리되어 보임
   map.on("load", () => {
-    const floorColor = [
-      "step",
-      ["get", "h_base_m"],
-      "#f7fbff",
-      3,  "#deebf7",
-      6,  "#9ecae1",
-      9,  "#6baed6",
-      12, "#3182bd",
-      15, "#08519c",
-      18, "#08306b",
-    ];
-
     PMTILES_SOURCES.forEach(({ id }) => {
-      map.addLayer({
-        id: `buildable_fill_${id}`,
-        type: "fill-extrusion",
-        source: `buildable_${id}`,
-        "source-layer": "buildable",
-        paint: {
-          "fill-extrusion-base": ["get", "h_base_m"],
-          "fill-extrusion-height": ["get", "h_top_m"],
-          "fill-extrusion-color": floorColor,
-          "fill-extrusion-opacity": 0.85,
-        },
+      FLOORS.forEach(f => {
+        map.addLayer({
+          id: `buildable_${id}_f${f}`,
+          type: "fill-extrusion",
+          source: `buildable_${id}`,
+          "source-layer": "buildable",
+          paint: {
+            // 이 layer는 "f층 슬라브" 전용 -- base/top 고정
+            "fill-extrusion-base": (f - 1) * 3,
+            "fill-extrusion-height": f * 3,
+            "fill-extrusion-color": FLOOR_COLORS[f],
+            "fill-extrusion-opacity": 0.85,
+            // 살짝의 vertical gradient는 MapLibre 미지원이라 색상으로만 분리
+          },
+        });
       });
     });
 
@@ -190,14 +198,23 @@
   });
 
   function applyFilter() {
-    const filters = [["==", ["get", "type"], currentType]];
-    if (floorOnly > 0) {
-      filters.push(["<=", ["get", "floor_from"], floorOnly]);
-      filters.push([">=", ["get", "floor_to"], floorOnly]);
-    }
-    const filter = ["all", ...filters];
-    LAYER_IDS.forEach(lid => {
-      if (map.getLayer(lid)) map.setFilter(lid, filter);
+    PMTILES_SOURCES.forEach(({ id }) => {
+      FLOORS.forEach(f => {
+        const lid = `buildable_${id}_f${f}`;
+        if (!map.getLayer(lid)) return;
+
+        // 이 layer가 표시될 record: type 일치 + 이 record의 floor 범위가 f를 포함
+        const filter = ["all",
+          ["==", ["get", "type"], currentType],
+          ["<=", ["get", "floor_from"], f],
+          [">=", ["get", "floor_to"], f],
+        ];
+        map.setFilter(lid, filter);
+
+        // floorOnly로 특정 층만 보기 모드
+        const visible = (floorOnly === 0) || (floorOnly === f);
+        map.setLayoutProperty(lid, "visibility", visible ? "visible" : "none");
+      });
     });
   }
 
@@ -226,8 +243,11 @@
   });
 
   // ===== 클릭 시 인스펙터 (모든 buildable layer 대응) =====
+  // layer id 형식: buildable_{districtId}_f{floor}
   map.on("load", () => {
     LAYER_IDS.forEach(lid => {
+      // 이 layer가 표현하는 층 번호 추출 ("..._f3" -> 3)
+      const clickedFloor = parseInt(lid.split("_f").pop());
       map.on("click", lid, (e) => {
         if (!e.features || !e.features[0]) return;
         const props = e.features[0].properties;
@@ -235,8 +255,8 @@
         const tbl = document.getElementById("info-table");
         tbl.innerHTML = `
           <tr><td>PNU</td><td>${props.pnu}</td></tr>
-          <tr><td>층 범위</td><td>${props.floor_from} – ${props.floor_to}층</td></tr>
-          <tr><td>높이</td><td>${props.h_base_m} – ${props.h_top_m} m</td></tr>
+          <tr><td>클릭한 층</td><td>${clickedFloor}층 (${(clickedFloor-1)*3}–${clickedFloor*3} m)</td></tr>
+          <tr><td>이 폴리곤 층범위</td><td>${props.floor_from} – ${props.floor_to}층</td></tr>
           <tr><td>가용 면적</td><td>${parseFloat(props.area_m2).toFixed(1)} m²</td></tr>
           <tr><td>용도지역</td><td>${props.zone_cd}</td></tr>
           <tr><td>시나리오</td><td>${props.type == 1 ? "현행" : "제안"}</td></tr>
