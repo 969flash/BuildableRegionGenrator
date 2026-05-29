@@ -33,10 +33,18 @@
   .controls { top: 16px; left: 16px; min-width: 240px; }
   .legend { bottom: 16px; right: 16px; }
   .legend .swatch { display: inline-block; width: 14px; height: 14px; margin-right: 6px; vertical-align: middle; border-radius: 2px; }
-  .info { top: 16px; right: 16px; max-width: 280px; display: none; }
-  .info table { border-collapse: collapse; width: 100%; margin-top: 6px; font-size: 12px; }
-  .info td { padding: 3px 6px; border-bottom: 1px solid #eee; }
-  .info td:first-child { color: #777; }
+
+  /* 좌측 층별 면적표 패널 (controls 아래) */
+  .info { top: 210px; left: 16px; width: 280px; display: none; }
+  .info .pnu { font-size: 11px; color: #888; margin-bottom: 8px; word-break: break-all; }
+  .info table.area { border-collapse: collapse; width: 100%; font-size: 12px; }
+  .info table.area th { background: #f3f4f6; padding: 4px 6px; font-weight: 600; text-align: right; border-bottom: 1px solid #ddd; }
+  .info table.area th:first-child { text-align: center; }
+  .info table.area td { padding: 3px 6px; text-align: right; border-bottom: 1px solid #f0f0f0; }
+  .info table.area td:first-child { text-align: center; color: #777; font-weight: 500; }
+  .info table.area td.pos { color: #1a7f37; }
+  .info table.area td.neg { color: #cf222e; }
+  .info .close-btn { position: absolute; top: 12px; right: 12px; cursor: pointer; color: #999; font-size: 16px; }
 
   .badge { display: inline-block; background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-size: 11px; color: #555; }
 </style>
@@ -76,8 +84,15 @@
 </div>
 
 <div class="panel info" id="info">
-  <h3>필지 정보</h3>
-  <table id="info-table"></table>
+  <span class="close-btn" id="info-close">✕</span>
+  <h3>층별 가용 면적 (㎡)</h3>
+  <div class="pnu" id="info-pnu"></div>
+  <table class="area">
+    <thead>
+      <tr><th>층</th><th>현행</th><th>제안</th><th>Δ</th></tr>
+    </thead>
+    <tbody id="info-tbody"></tbody>
+  </table>
 </div>
 
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
@@ -197,6 +212,35 @@
       });
     });
 
+    // ===== 선택 강조 source + layers =====
+    map.addSource("selection", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [] },
+    });
+    // 바닥 footprint 볼드 아웃라인
+    map.addLayer({
+      id: "selection-outline",
+      type: "line",
+      source: "selection",
+      paint: {
+        "line-color": "#ff3b30",
+        "line-width": 4,
+        "line-opacity": 0.95,
+      },
+    });
+    // 3D 강조 기둥 (선택 건물 전체 높이를 빨강 반투명으로 감쌈)
+    map.addLayer({
+      id: "selection-extrude",
+      type: "fill-extrusion",
+      source: "selection",
+      paint: {
+        "fill-extrusion-base": 0,
+        "fill-extrusion-height": ["get", "_height"],
+        "fill-extrusion-color": "#ff3b30",
+        "fill-extrusion-opacity": 0.25,
+      },
+    });
+
     applyFilter();
   });
 
@@ -245,31 +289,91 @@
     applyFilter();
   });
 
-  // ===== 클릭 시 인스펙터 (모든 buildable layer 대응) =====
-  // layer id 형식: buildable_{districtId}_f{floor}
+  // ===== 선택 상태 =====
+  let selected = null;  // { pnu, districtId }
+
+  function selectParcel(pnu, districtId) {
+    selected = { pnu, districtId };
+    const sourceId = `buildable_${districtId}`;
+
+    // 이 PNU의 모든 record 조회 (type1 + type2, 모든 층 범위)
+    const feats = map.querySourceFeatures(sourceId, {
+      sourceLayer: "buildable",
+      filter: ["==", ["get", "pnu"], pnu],
+    });
+
+    if (!feats.length) return;
+
+    // type별 floor별 면적 매핑
+    const byType = { 1: {}, 2: {} };
+    let footprint = null;       // 1층 footprint geometry (강조용)
+    let zone = "", district = "", maxFloor = 0;
+    feats.forEach(f => {
+      const p = f.properties;
+      const t = p.type;
+      for (let fl = p.floor_from; fl <= p.floor_to; fl++) {
+        byType[t][fl] = p.area_m2;
+      }
+      maxFloor = Math.max(maxFloor, p.floor_to);
+      if (p.floor_from === 1 && !footprint) footprint = f.geometry;
+      zone = p.zone_cd; district = p.district;
+    });
+    if (!footprint && feats[0]) footprint = feats[0].geometry;
+
+    // --- 선택 강조 (footprint outline + 실제 높이 강조 기둥) ---
+    map.getSource("selection").setData({
+      type: "FeatureCollection",
+      features: footprint ? [{
+        type: "Feature",
+        geometry: footprint,
+        properties: { _height: Math.max(maxFloor, 1) * 3 },
+      }] : [],
+    });
+
+    // --- 층별 면적표 렌더 ---
+    const tbody = document.getElementById("info-tbody");
+    let rows = "";
+    for (let fl = 1; fl <= 7; fl++) {
+      const a1 = byType[1][fl];
+      const a2 = byType[2][fl];
+      const s1 = (a1 != null) ? a1.toFixed(1) : "–";
+      const s2 = (a2 != null) ? a2.toFixed(1) : "–";
+      let dCell = "<td>–</td>";
+      if (a1 != null && a2 != null) {
+        const d = a2 - a1;
+        const cls = d > 0.05 ? "pos" : (d < -0.05 ? "neg" : "");
+        const sign = d > 0 ? "+" : "";
+        dCell = `<td class="${cls}">${sign}${d.toFixed(1)}</td>`;
+      }
+      rows += `<tr><td>${fl}층</td><td>${s1}</td><td>${s2}</td>${dCell}</tr>`;
+    }
+    tbody.innerHTML = rows;
+    document.getElementById("info-pnu").textContent =
+      `PNU ${pnu} · ${district} · 용도지역 ${zone}`;
+    document.getElementById("info").style.display = "block";
+  }
+
+  // ===== 클릭 핸들러 (모든 buildable layer) =====
   map.on("load", () => {
     LAYER_IDS.forEach(lid => {
-      // 이 layer가 표현하는 층 번호 추출 ("..._f3" -> 3)
-      const clickedFloor = parseInt(lid.split("_f").pop());
       map.on("click", lid, (e) => {
         if (!e.features || !e.features[0]) return;
         const props = e.features[0].properties;
-        const info = document.getElementById("info");
-        const tbl = document.getElementById("info-table");
-        tbl.innerHTML = `
-          <tr><td>PNU</td><td>${props.pnu}</td></tr>
-          <tr><td>클릭한 층</td><td>${clickedFloor}층 (${(clickedFloor-1)*3}–${clickedFloor*3} m)</td></tr>
-          <tr><td>이 폴리곤 층범위</td><td>${props.floor_from} – ${props.floor_to}층</td></tr>
-          <tr><td>가용 면적</td><td>${parseFloat(props.area_m2).toFixed(1)} m²</td></tr>
-          <tr><td>용도지역</td><td>${props.zone_cd}</td></tr>
-          <tr><td>시나리오</td><td>${props.type == 1 ? "현행" : "제안"}</td></tr>
-          <tr><td>지역</td><td>${props.district}</td></tr>
-        `;
-        info.style.display = "block";
+        const districtId = lid.split("_")[1];  // buildable_11680_f3 -> 11680
+        selectParcel(props.pnu, districtId);
       });
       map.on("mouseenter", lid, () => map.getCanvas().style.cursor = "pointer");
       map.on("mouseleave", lid, () => map.getCanvas().style.cursor = "");
     });
+  });
+
+  // 닫기 버튼
+  document.getElementById("info-close").addEventListener("click", () => {
+    document.getElementById("info").style.display = "none";
+    selected = null;
+    if (map.getSource("selection")) {
+      map.getSource("selection").setData({ type: "FeatureCollection", features: [] });
+    }
   });
 </script>
 </body>
