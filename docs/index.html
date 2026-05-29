@@ -135,6 +135,10 @@
     };
   });
 
+  // 초기 포커스 필지 (역삼동, 강남구)
+  const TARGET_PNU = "1168010100108100010";
+  const TARGET_CENTER = [127.026526, 37.503069];
+
   const map = new maplibregl.Map({
     container: "map",
     style: {
@@ -143,8 +147,8 @@
       sources: initialSources,
       layers: [{ id: "osm", type: "raster", source: "osm" }],
     },
-    center: [127.046, 37.502],
-    zoom: 14,
+    center: TARGET_CENTER,
+    zoom: 17.5,
     pitch: 60,
     bearing: -20,
     maxPitch: 75,
@@ -194,6 +198,22 @@
       });
     });
 
+    // ===== 타겟 필지 강조 (빨간 윤곽 + 노란 하이라이트) =====
+    // 강남(11680) source에서 TARGET_PNU만 골라 강조
+    map.addLayer({
+      id: "target-highlight",
+      type: "fill-extrusion",
+      source: "buildable_11680",
+      "source-layer": "buildable",
+      filter: ["==", ["get", "pnu"], TARGET_PNU],
+      paint: {
+        "fill-extrusion-base": ["get", "h_base_m"],
+        "fill-extrusion-height": ["get", "h_top_m"],
+        "fill-extrusion-color": "#ff3b30",
+        "fill-extrusion-opacity": 0.55,
+      },
+    });
+
     applyFilter();
   });
 
@@ -216,6 +236,14 @@
         map.setLayoutProperty(lid, "visibility", visible ? "visible" : "none");
       });
     });
+
+    // 타겟 강조도 현재 type에 맞춤
+    if (map.getLayer("target-highlight")) {
+      map.setFilter("target-highlight", ["all",
+        ["==", ["get", "pnu"], TARGET_PNU],
+        ["==", ["get", "type"], currentType],
+      ]);
+    }
   }
 
   // ===== UI 이벤트 =====
