@@ -1,12 +1,8 @@
-# Explainable Computational Framework for Building Regulation Compliance and Setback Simulation in Seoul
+# LLM-Based Design Automation for Defining Buildable Envelopes: Simulating Daylight Setback Regulation Changes
 
-> Implementation of an automated framework — combining LLM-based regulation extraction, RASE-format structuring, geometry-based north-facing setback simulation across Seoul residential parcels, and **interactive 3D web visualization**.
+> Implementation of an automated framework — combining LLM-based regulation extraction, RASE-format structuring, and geometry-based north-facing setback simulation across Seoul residential parcels.
 
-### 🌐 Live Demo
-
-**[https://969flash.github.io/BuildableRegionGenrator/](https://969flash.github.io/BuildableRegionGenrator/)**
-
-3D extruded buildable envelopes for all residential parcels (Gangnam-gu MVP; full Seoul rollout in progress). Toggle current vs proposed setback rules, filter by floor, click parcel for details.
+> 🌐 **Interactive 3D Map (companion project)** — Seoul-wide buildable volume results (all 25 districts) rendered as 3D extruded slabs in the browser: **[https://969flash.github.io/BuildableRegionGenrator/](https://969flash.github.io/BuildableRegionGenrator/)**
 
 ![GIS heatmap of Gangnam-gu simulation results](docs/figures/fig5_gis_heatmap.png)
 
@@ -16,7 +12,7 @@ Fig. 5 — Gangnam-gu general residential zone: floor 5 (15 m) buildable area ch
 
 ## Overview
 
-This project implements a complete pipeline for computationally assessing building envelope constraints in Seoul's residential zones, spanning four integrated stages:
+This project implements a complete pipeline for computationally assessing building envelope constraints in Seoul's residential zones, spanning three integrated stages:
 
 ![Stage 3 computation pipeline](docs/figures/fig2_typeB_2row.jpg)
 
@@ -27,8 +23,6 @@ Fig. 1 — Stage 3 computation pipeline: Input → Preprocessing → North Bound
 **Stage 2 — RASE Structuring** (`law_rag/`): Retrieved regulation text is passed to an LLM (Gemini) which structures each rule into a machine-readable RASE JSON (Rule, Applicability, Scenario, Exception). This structured representation bridges human-readable law and executable code.
 
 **Stage 3 — Setback Simulation** (`setback_sim/`): The structured rules are implemented as a geometry engine in Rhino/Grasshopper. For each residential parcel, the engine computes floor-by-floor buildable areas under both the current (Type 1) and proposed (Type 2) north-facing sky angle setback regulations, exporting both per-floor area CSV and 2D buildable polygon shapefiles.
-
-**Stage 4 — Web Visualization** (`docs/`, `scripts/`): Per-floor 2D polygons are reprojected to WGS84, packed into Mapbox Vector Tiles via Tippecanoe, converted to a single PMTiles file, and served as static assets through GitHub Pages. A MapLibre GL JS frontend renders them as 3D extruded slabs in the browser with floor-by-floor filtering and current-vs-proposed comparison.
 
 ---
 
@@ -50,10 +44,11 @@ root/
 │   │   └── 서울특별시 건축 조례/
 │   ├── config/
 │   │   └── eval_queries.json    # 50-query evaluation set with gold labels
-│   └── outputs/
-│       ├── cache/               # TF-IDF / BM25 / Dense index cache
-│       ├── qa_logs/             # Q&A results (JSON)
-│       └── rase_outputs/        # RASE-structured regulation JSONs
+│   ├── outputs/
+│   │   ├── rase_outputs/        # RASE-structured regulation JSONs (Ollama variant)
+│   │   └── rase_outputs_gem/    # RASE-structured regulation JSONs (Gemini variant)
+│   ├── docs/                    # Project & paper notes (PROJECT_INTRO, THESIS_SECTION_3_2)
+│   └── requirements.txt
 │
 ├── setback_sim/                 # Stage 3 — Setback geometry simulation
 │   ├── northsky.py              # Core calculator (NorthSkyCalculator)
@@ -64,21 +59,21 @@ root/
 │   ├── utils.py                 # Geometry utilities (Rhino + Shapely)
 │   └── constants.py             # Policy constants (setback rules, tolerances)
 │
-├── scripts/                     # Stage 4 — Data prep + verification
+├── scripts/                     # Data prep + verification
 │   ├── add_apt_yn.py            # Join 용도별건물정보 (AL_D198) → APT_YN/BUILD_CNT
-│   ├── shp_to_geojsonl.py       # Result SHPs → reprojected GeoJSONL (Tippecanoe input)
 │   └── verify_geom_shp.py       # Schema / CRS / BBOX / dedup ratio audit
 │
-├── data/                        # Shared GIS / cadastral data (gitignored except samples)
+├── data/                        # Shared GIS / cadastral data
 │   ├── Parcels.shp              # Sample (235 lots, Gangnam subset for smoke tests)
 │   ├── Gangnam.shp              # Full Gangnam (34K shapes, joined APT_YN)
 │   └── 국가중점데이터_컬럼정의서*.xlsx  # Column dictionary for AL_D194 / D198
 │
-└── docs/                        # GitHub Pages site root (serves Stage 4 viewer)
-    ├── index.html               # MapLibre + PMTiles 3D viewer
-    ├── buildable_gangnam.pmtiles  # MVT tiles for Gangnam (12 MB)
+└── docs/                        # Research artifacts
+    ├── 0331_원고.pdf            # Manuscript
+    ├── northsky_pseudocode.md   # Setback algorithm pseudocode
+    ├── project_io_and_logic_ko.md
     ├── figures/                 # Paper figures (Fig. 1–6)
-    └── ...                      # Other research artifacts (PDF, scenario reports)
+    └── scenario_analysis/       # RASE scenario validation (cross_check, scenario_report, rase_json/)
 ```
 
 ---
@@ -243,7 +238,7 @@ Run `setback_sim/shp_northsky_batch.py`. Results saved to `data/result/` with ti
 
 #### Seoul-wide batch (multi-district, polygon output)
 
-For city-scale runs producing **per-floor 2D polygon shapefiles** (for Stage 4 web visualization), use `seoul_geom_export.py` through a fresh GH Python component. The driver script `gh_seoul_export_component.py` provides defensive imports, diagnostic logging, and per-district `.done` markers so the run is resumable.
+For city-scale runs producing **per-floor 2D polygon shapefiles**, use `seoul_geom_export.py` through a fresh GH Python component. The driver script `gh_seoul_export_component.py` provides defensive imports, diagnostic logging, and per-district `.done` markers so the run is resumable.
 
 Key features over the legacy batch:
 - Single calculator init per parcel reused across both setback types (~2× speedup)
@@ -253,73 +248,17 @@ Key features over the legacy batch:
 
 GH inputs: `folder_path` (str, directory of district SHPs), `run` (bool). Output: `{folder}/result_geom/{district}_buildable_type{N}_*.shp` plus a single `.done` flag per district.
 
----
-
-## Stage 4 — Web Visualization
-
-Per-floor buildable polygons from Stage 3 are converted into an interactive 3D web map ([live demo](https://969flash.github.io/BuildableRegionGenrator/)).
-
-### Pipeline
-
-```text
-result_geom/*.shp  (EPSG:5179, per-floor polygons)
-    │
-    ▼
-scripts/shp_to_geojsonl.py  ── reproject 5179 → 4326, merge type 1 & 2
-    │
-    ▼
-buildable_all.geojsonl
-    │
-    ▼
-tippecanoe  ── MVT at zoom 10–16, drop-densest-as-needed
-    │
-    ▼
-buildable.mbtiles  →  pmtiles convert  →  buildable.pmtiles  (single file, range-request friendly)
-    │
-    ▼
-docs/buildable_*.pmtiles  (committed to repo, served by GitHub Pages)
-    │
-    ▼
-docs/index.html  ── MapLibre GL JS + pmtiles.js + fill-extrusion
-```
-
-### Why per-floor 2D, not 3D mesh
-
-Storing pre-built 3D meshes per parcel × floor would balloon to gigabytes. Instead each parcel × floor × setback-type is stored as a **single 2D polygon with `h_base_m`/`h_top_m` attributes**; MapLibre's `fill-extrusion` paint extrudes them at render time. Consecutive floors that share a footprint are merged via `floor_from`/`floor_to` range encoding, cutting feature count further.
-
-### Hosting choice
-
-The project uses **GitHub Pages (same-origin)** for both the HTML and the PMTiles file. Earlier attempts using GitHub Releases failed because the asset URL redirects to Azure Blob without CORS headers, blocking browser range requests. Cloudflare R2 would also work but requires a payment method on file; GitHub Pages is fully free with no card and no surprise billing risk. For Seoul-wide tiles exceeding the 100 MB/file GitHub limit, per-district PMTiles are loaded as parallel MapLibre sources.
-
 ### Data preparation: APT_YN field
 
 The setback engine consults the lot attribute `APT_YN` to detect when a neighboring lot across a road is a general-residential apartment, triggering a centerline correction. The standard 토지특성정보 (AL_D194) SHP does not include this column. `scripts/add_apt_yn.py` joins 용도별건물정보 (AL_D198) on PNU, aggregates per parcel, and emits `APT_YN`, `BUILD_CNT`, `BUILD_USE_` columns. APT_YN = "Y" when any building on the parcel has 주요용도코드 `02000` (공동주택). Verified against the legacy Gangnam reference at 98.65% PNU-level agreement.
 
-### Running Stage 4 locally
+### Verifying outputs
 
-```bash
-# 1. Join apartment info onto Seoul-wide parcels (~70 seconds for all 25 districts)
-python3 scripts/add_apt_yn.py
-
-# 2. After GH simulation completes -- merge per-floor polygons into single GeoJSONL
-python3 scripts/shp_to_geojsonl.py data/_seoul_apt/result_geom/
-
-# 3. Build vector tiles
-tippecanoe -o buildable.mbtiles --layer=buildable \
-    --minimum-zoom=10 --maximum-zoom=16 \
-    --drop-densest-as-needed --extend-zooms-if-still-dropping --force \
-    data/_seoul_apt/result_geom/buildable_all.geojsonl
-
-# 4. Convert to PMTiles (single file with range-request support)
-pmtiles convert buildable.mbtiles docs/buildable.pmtiles
-
-# 5. Update PMTILES_URL in docs/index.html, push to main → GitHub Pages redeploys
-```
-
-Verify outputs (CRS, BBOX, dedup ratio, polygon closure) with:
 ```bash
 python3 scripts/verify_geom_shp.py data/_seoul_apt/result_geom/
 ```
+
+Checks field schema (`pnu`, `floor_from`, `floor_to`, `type`, `h_base_m`, `h_top_m`, `zone_cd`, `area_m2`, `seg_cnt`), CRS (EPSG:5179), Seoul BBOX, polygon closure, and feature counts.
 
 ---
 
@@ -365,7 +304,7 @@ Fig. 4 — Automated output vs hand-calculated reference (Current scenario, 3 re
 | `*_road20m_exclusion_*.csv` | Segments excluded by 20 m road rule |
 | `*_apartment_centerline_*.csv` | Apartment centerline corrections |
 
-### result_geom/ — Per-floor buildable polygons (Stage 4 input)
+### result_geom/ — Per-floor buildable polygons
 
 Produced by `setback_sim/seoul_geom_export.py`. EPSG:5179 Polygon shapefile per (district, setback_type).
 
@@ -381,7 +320,7 @@ Produced by `setback_sim/seoul_geom_export.py`. EPSG:5179 Polygon shapefile per 
 | `area_m2` | N(12.4) | Polygon area |
 | `seg_cnt` | N(3) | Active setback base segments |
 
-Consecutive floors sharing geometry are merged into one record — see Stage 4 for dedup details.
+Consecutive floors sharing geometry are merged into one record via `floor_from`/`floor_to` range encoding.
 
 ---
 
@@ -407,11 +346,13 @@ Code is released under the MIT License (see `LICENSE`). Output simulation data d
 ## Citation
 
 ```bibtex
-@article{byun2025explainable,
-  title  = {An Explainable Computational Framework for Building Regulation
-            Compliance and Setback Simulation in Seoul},
-  author = {Byun, Sanghoon and Park, Dongjun and Kang, bumjoon},
-  year   = {2025}
+@article{byun2026llm,
+  title   = {LLM-Based Design Automation for Defining Buildable Envelopes:
+             Simulating Daylight Setback Regulation Changes},
+  author  = {Byun, Sanghoon and Oh, Jungseuk and Kang, Bumjoon},
+  journal = {Journal of the Urban Design Institute of Korea (한국도시설계학회지)},
+  year    = {2026},
+  note    = {Forthcoming}
 }
 ```
 
@@ -422,11 +363,11 @@ Code is released under the MIT License (see `LICENSE`). Output simulation data d
 | Name | Affiliation | Role |
 | --- | --- | --- |
 | Sanghoon Byun | LAUS, Seoul National University | Author |
-| Dongjun Park | LAUS, Seoul National University | Author |
-| bumjoon Kang | LAUS, Seoul National University | Advisor |
+| Jungseuk Oh | LAUS, Seoul National University | Author |
+| Bumjoon Kang | LAUS, Seoul National University | Advisor |
 
 ---
 
 ## Acknowledgments
 
-This research was conducted at the **[LAUS (Lab. for Architectural & Urban Space)](https://laus.snu.ac.kr/)**, Department of Architecture and Architectural Engineering, **Seoul National University**, under the supervision of Prof. bumjoon Kang.
+This research was conducted at the **[LAUS (Lab. for Architectural & Urban Space)](https://laus.snu.ac.kr/)**, Department of Architecture and Architectural Engineering, **Seoul National University**, under the supervision of Prof. Bumjoon Kang.
